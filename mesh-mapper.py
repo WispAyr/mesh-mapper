@@ -114,10 +114,14 @@ GPS_READER = None  # GPSReader instance
 STATION_GPS = {
     "lat": 0.0, "lon": 0.0, "alt": 0.0,
     "speed": 0.0, "speed_kmh": 0.0, "heading": 0.0,
-    "fix": False, "fix_quality": 0, "satellites": 0,
-    "hdop": 99.99, "timestamp": 0
+    "fix": False, "fix_quality": 0, "fix_source": "none",
+    "satellites": 0, "hdop": 99.99, "timestamp": 0
 }
 STATION_GPS_LOCK = threading.Lock()
+
+# MMIP (Mesh Mapper Interchange Protocol) configuration
+MMIP_CONFIG = {}
+MMIP_SUBSCRIPTIONS = []  # list of active MQTT subscription topic filters
 
 import paho.mqtt.client as mqtt
 MQTT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mqtt_config.json')
@@ -303,6 +307,76 @@ class MQTTPublisher:
 
     def publish_gps_position(self, gps_data):
         self.publish_message("gps/position", gps_data, "system")
+
+    # ----- MMIP (Mesh Mapper Interchange Protocol) -----
+
+    def publish_mmip_event(self, event_type, payload):
+        """Wrap data in an MMIP envelope and publish to the MMIP topic tree.
+
+        MMIP/1.0 envelope format:
+        {
+            "protocol": "mmip/1.0",
+            "source": { "id": "...", "type": "mesh-mapper", "location": {...}, "timestamp": ... },
+            "event_type": "detection|alert|status|heartbeat",
+            "payload": { ... }
+        }
+
+        Topics: mmip/{source_id}/{event_type}
+        """
+        if not self.config.get("enabled") or not self.is_connected:
+            return
+        mmip_cfg = MMIP_CONFIG if MMIP_CONFIG else {}
+        if not mmip_cfg.get('enabled') or not mmip_cfg.get('publish'):
+            return
+
+        source_id = mmip_cfg.get('source_id', 'unknown')
+
+        # Build station location from current GPS
+        with STATION_GPS_LOCK:
+            loc = {
+                "lat": STATION_GPS.get("lat", 0),
+                "lon": STATION_GPS.get("lon", 0),
+                "alt": STATION_GPS.get("alt", 0),
+            }
+
+        envelope = {
+            "protocol": "mmip/1.0",
+            "source": {
+                "id": source_id,
+                "type": mmip_cfg.get('source_type', 'mesh-mapper'),
+                "location": loc,
+                "timestamp": time.time(),
+            },
+            "event_type": event_type,
+            "payload": payload,
+        }
+
+        topic = f"mmip/{source_id}/{event_type}"
+        try:
+            self.client.publish(topic, json.dumps(envelope))
+            logger.debug("MMIP published to %s", topic)
+        except Exception as e:
+            logger.debug("MMIP publish error: %s", e)
+
+    def subscribe_mmip_events(self, topic_filters=None):
+        """Subscribe to MMIP topics from other mesh-mapper instances.
+
+        topic_filters: list of MQTT topic patterns, e.g. ["mmip/+/alerts", "mmip/+/detections"]
+        """
+        if not self.config.get("enabled") or not self.is_connected or not self.client:
+            return
+        mmip_cfg = MMIP_CONFIG if MMIP_CONFIG else {}
+        if not mmip_cfg.get('enabled') or not mmip_cfg.get('subscribe'):
+            return
+
+        filters = topic_filters or mmip_cfg.get('subscribe_filters', [])
+        for tf in filters:
+            try:
+                self.client.subscribe(tf)
+                MMIP_SUBSCRIPTIONS.append(tf)
+                logger.info("MMIP subscribed to %s", tf)
+            except Exception as e:
+                logger.warning("MMIP subscribe error for %s: %s", tf, e)
 
 # Global MQTT Publisher instance
 mqtt_publisher = MQTTPublisher()
@@ -13181,7 +13255,7 @@ def main():
     # Start webcams data updater
     start_webcams_updater()
 
-    # Load BLE/GPS configuration and start services
+    # Load BLE/GPS/MMIP configuration and start services
     load_ble_config()
 
     # Start GPS reader (before BLE so position is available)
@@ -13189,6 +13263,9 @@ def main():
 
     # Start BLE Radar scanner
     start_ble_radar()
+
+    # Start MMIP (Mesh Mapper Interchange Protocol)
+    start_mmip()
 
     # Initial download if file doesn't exist
     if not os.path.exists(OPENAIR_FILE):
@@ -14345,33 +14422,82 @@ def api_recent_data():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # =====================================================================
-# BLE Radar & GPS Integration
+# BLE Radar, GPS & MMIP Integration
 # =====================================================================
 
+# --- Category filter helper (shared) ---
+_CAT_KEY_MAP = {
+    'drone': 'drones', 'phone': 'phones', 'tracker': 'trackers',
+    'vehicle': 'vehicles', 'beacon': 'beacons', 'wearable': 'wearables',
+    'audio': 'audio', 'unknown': 'unknown'
+}
+
+def _category_allowed(category):
+    cat_filter = BLE_CONFIG.get('categories', {})
+    if not cat_filter:
+        return True
+    return cat_filter.get(_CAT_KEY_MAP.get(category, 'unknown'), True)
+
+# --- Config load / save ---
+
 def load_ble_config():
-    """Load BLE Radar and GPS configuration from ble_config.json."""
-    global BLE_CONFIG, BLE_ENABLED, GPS_ENABLED
+    """Load BLE, GPS, station, and MMIP configuration from ble_config.json."""
+    global BLE_CONFIG, BLE_ENABLED, GPS_ENABLED, MMIP_CONFIG
+    defaults = {
+        "enabled": True,
+        "serial_port": "/dev/ttyUSB0",
+        "baud_rate": 921600,
+        "rssi_min": -100,
+        "scan_mode": "advertisements",
+        "categories": {
+            "drones": True, "phones": True, "trackers": True,
+            "vehicles": True, "beacons": True, "wearables": True,
+            "audio": True, "unknown": False
+        },
+        "stale_timeout_seconds": 300,
+        "publish_interval_seconds": 30,
+        "gps": {"enabled": True, "serial_port": "/dev/ttyACM2", "baud_rate": 9600},
+        "station": {
+            "name": "", "label": "",
+            "default_lat": 0, "default_lon": 0, "default_alt": 0,
+            "manual_override": False,
+            "manual_lat": 0, "manual_lon": 0, "manual_alt": 0,
+        },
+        "mmip": {
+            "enabled": False,
+            "source_id": "mesh-mapper-default",
+            "source_type": "mesh-mapper",
+            "publish": True,
+            "subscribe": True,
+            "subscribe_filters": ["mmip/+/alerts", "mmip/+/status"],
+        },
+    }
     if os.path.exists(BLE_CONFIG_FILE):
         try:
             with open(BLE_CONFIG_FILE, 'r') as f:
-                BLE_CONFIG = json.load(f)
-            BLE_ENABLED = BLE_CONFIG.get('enabled', True)
-            GPS_ENABLED = BLE_CONFIG.get('gps', {}).get('enabled', True)
-            logger.info(f"Loaded BLE config: BLE={BLE_ENABLED}, GPS={GPS_ENABLED}")
+                loaded = json.load(f)
+            # Deep-merge loaded on top of defaults
+            for key in defaults:
+                if key not in loaded:
+                    loaded[key] = defaults[key]
+                elif isinstance(defaults[key], dict):
+                    for dk, dv in defaults[key].items():
+                        loaded[key].setdefault(dk, dv)
+            BLE_CONFIG = loaded
         except Exception as e:
             logger.error(f"Error loading BLE config: {e}")
+            BLE_CONFIG = defaults
     else:
         logger.info("No BLE config file found, using defaults")
-        BLE_CONFIG = {
-            "enabled": True,
-            "serial_port": "/dev/ttyUSB0",
-            "baud_rate": 921600,
-            "rssi_min": -100,
-            "categories": {},
-            "stale_timeout_seconds": 300,
-            "publish_interval_seconds": 30,
-            "gps": {"enabled": True, "serial_port": "/dev/ttyACM2", "baud_rate": 9600}
-        }
+        BLE_CONFIG = defaults
+
+    BLE_ENABLED = BLE_CONFIG.get('enabled', True)
+    GPS_ENABLED = BLE_CONFIG.get('gps', {}).get('enabled', True)
+    MMIP_CONFIG = BLE_CONFIG.get('mmip', {})
+    logger.info(f"BLE config loaded: BLE={BLE_ENABLED}, GPS={GPS_ENABLED}, "
+                f"MMIP={MMIP_CONFIG.get('enabled', False)}, "
+                f"Station={BLE_CONFIG.get('station', {}).get('name', '(unnamed)')}")
+
 
 def save_ble_config():
     """Save BLE configuration to disk."""
@@ -14382,29 +14508,66 @@ def save_ble_config():
     except Exception as e:
         logger.error(f"Error saving BLE config: {e}")
 
+
+# --- GPS position resolution (priority chain) ---
+
+def resolve_station_position():
+    """Return the best available station position using the priority chain:
+    Live GPS fix > Last known GPS > Manual override > Hardcoded default.
+
+    Returns dict with lat, lon, alt, fix_source.
+    """
+    with STATION_GPS_LOCK:
+        gps = dict(STATION_GPS)
+
+    # 1. Live GPS fix
+    if gps.get('fix') and gps.get('fix_source') == 'gps':
+        return gps
+
+    # 2. Last known GPS (loaded at startup by GPSReader, or persisted)
+    if gps.get('lat') and gps.get('lon') and gps.get('fix_source') in ('gps', 'last_known'):
+        return gps
+
+    # 3. Manual override from config
+    station = BLE_CONFIG.get('station', {})
+    if station.get('manual_override'):
+        m_lat = station.get('manual_lat', 0)
+        m_lon = station.get('manual_lon', 0)
+        if m_lat and m_lon:
+            return {
+                'lat': m_lat, 'lon': m_lon, 'alt': station.get('manual_alt', 0),
+                'fix': False, 'fix_source': 'manual', 'satellites': 0, 'timestamp': time.time(),
+            }
+
+    # 4. Hardcoded default from config
+    d_lat = station.get('default_lat', 0)
+    d_lon = station.get('default_lon', 0)
+    if d_lat and d_lon:
+        return {
+            'lat': d_lat, 'lon': d_lon, 'alt': station.get('default_alt', 0),
+            'fix': False, 'fix_source': 'default', 'satellites': 0, 'timestamp': time.time(),
+        }
+
+    # 5. Nothing
+    return gps
+
+
+# --- BLE event callback ---
+
 def ble_event_callback(event_type, device_data):
     """Called by BLERadar for each device detection."""
     global BLE_DEVICES
     mac = device_data.get('mac', '')
     category = device_data.get('category', 'unknown')
 
-    # Check category filter
-    cat_filter = BLE_CONFIG.get('categories', {})
-    # Map category names to config keys (handle plural)
-    cat_key_map = {
-        'drone': 'drones', 'phone': 'phones', 'tracker': 'trackers',
-        'vehicle': 'vehicles', 'beacon': 'beacons', 'wearable': 'wearables',
-        'audio': 'audio', 'unknown': 'unknown'
-    }
-    config_key = cat_key_map.get(category, 'unknown')
-    if cat_filter and not cat_filter.get(config_key, True):
+    if not _category_allowed(category):
         return
 
-    # Inject station GPS position into device data if available
-    with STATION_GPS_LOCK:
-        if STATION_GPS.get('fix'):
-            device_data['station_lat'] = STATION_GPS['lat']
-            device_data['station_lon'] = STATION_GPS['lon']
+    # Inject station position into device data
+    station = resolve_station_position()
+    if station.get('lat') and station.get('lon'):
+        device_data['station_lat'] = station['lat']
+        device_data['station_lon'] = station['lon']
 
     # Update global device dict
     with BLE_DEVICES_LOCK:
@@ -14433,31 +14596,35 @@ def ble_event_callback(event_type, device_data):
                     'last_seen': time.time(),
                 }
                 update_detection(detection)
-                # Also MQTT publish
                 mqtt_publisher.publish_ble_drone(mac, drone_data)
+                # MMIP
+                mqtt_publisher.publish_mmip_event('detection', {
+                    'detection_type': 'drone_ble_remoteid', **drone_data
+                })
             except Exception as e:
                 logger.error(f"Error feeding BLE drone to pipeline: {e}")
 
-        # Emit SocketIO drone event
         try:
             socketio.emit('ble_drone', drone_data)
         except Exception:
             pass
 
-    # Emit new device SocketIO event
+    # SocketIO: new device event
     try:
-        # Only emit for newly-seen devices (advert_count == 1)
         if device_data.get('advert_count', 0) == 1:
             socketio.emit('ble_device_new', device_data)
     except Exception:
         pass
 
-    # MQTT: publish trackers individually
+    # MQTT: individual tracker publish
     if category == 'tracker':
         try:
             mqtt_publisher.publish_ble_tracker(mac, device_data)
         except Exception:
             pass
+
+
+# --- GPS callback ---
 
 def gps_update_callback(gps_data):
     """Called by GPSReader on each valid GPS fix."""
@@ -14465,18 +14632,20 @@ def gps_update_callback(gps_data):
     with STATION_GPS_LOCK:
         STATION_GPS.update(gps_data)
 
-    # Emit via SocketIO
     try:
         socketio.emit('gps_update', gps_data)
     except Exception:
         pass
 
-    # MQTT publish (throttled – only every ~5 seconds)
+    # MQTT publish (throttled to ~5s)
     if int(time.time()) % 5 == 0:
         try:
             mqtt_publisher.publish_gps_position(gps_data)
         except Exception:
             pass
+
+
+# --- Start BLE Radar ---
 
 def start_ble_radar():
     """Initialize and start the BLE Radar scanner."""
@@ -14504,7 +14673,6 @@ def start_ble_radar():
         BLE_RADAR.start()
         logger.info("BLE Radar started successfully")
 
-        # Start background thread for periodic broadcasts and pruning
         ble_broadcast_thread = threading.Thread(target=_ble_broadcast_loop, daemon=True, name='BLEBroadcast')
         ble_broadcast_thread.start()
 
@@ -14513,8 +14681,9 @@ def start_ble_radar():
     except Exception as e:
         logger.error(f"Failed to start BLE Radar: {e}")
 
+
 def _ble_broadcast_loop():
-    """Periodically broadcast BLE device list and stats via SocketIO/MQTT, and prune stale."""
+    """Periodically broadcast BLE device list + stats, prune stale, MMIP heartbeat."""
     interval = BLE_CONFIG.get('publish_interval_seconds', 30)
     stale_timeout = BLE_CONFIG.get('stale_timeout_seconds', 300)
 
@@ -14523,55 +14692,57 @@ def _ble_broadcast_loop():
             SHUTDOWN_EVENT.wait(interval)
             if SHUTDOWN_EVENT.is_set():
                 break
-
             if BLE_RADAR is None:
                 continue
 
-            # Prune stale devices
             BLE_RADAR.prune_stale(stale_timeout)
 
-            # Get current data
             devices = BLE_RADAR.get_devices()
             stats = BLE_RADAR.get_stats()
 
-            # Apply category filter for the broadcast
-            cat_filter = BLE_CONFIG.get('categories', {})
-            cat_key_map = {
-                'drone': 'drones', 'phone': 'phones', 'tracker': 'trackers',
-                'vehicle': 'vehicles', 'beacon': 'beacons', 'wearable': 'wearables',
-                'audio': 'audio', 'unknown': 'unknown'
-            }
-            if cat_filter:
-                filtered = {}
-                for mac, dev in devices.items():
-                    config_key = cat_key_map.get(dev.get('category', 'unknown'), 'unknown')
-                    if cat_filter.get(config_key, True):
-                        filtered[mac] = dev
-                devices = filtered
+            # Apply category filter
+            filtered = {m: d for m, d in devices.items() if _category_allowed(d.get('category', 'unknown'))}
 
-            # SocketIO broadcast
+            # SocketIO
             try:
-                socketio.emit('ble_devices', {'devices': devices})
+                socketio.emit('ble_devices', {'devices': filtered})
                 socketio.emit('ble_stats', stats)
             except Exception as e:
                 logger.debug(f"BLE SocketIO broadcast error: {e}")
 
-            # MQTT broadcast
+            # MQTT
             try:
-                mqtt_publisher.publish_ble_devices(list(devices.values()))
+                mqtt_publisher.publish_ble_devices(list(filtered.values()))
                 mqtt_publisher.publish_ble_stats(stats)
             except Exception as e:
                 logger.debug(f"BLE MQTT broadcast error: {e}")
 
+            # MMIP heartbeat
+            try:
+                station = resolve_station_position()
+                mqtt_publisher.publish_mmip_event('heartbeat', {
+                    'ble_devices': stats.get('total_devices', 0),
+                    'ble_packets': stats.get('total_packets', 0),
+                    'gps_fix': station.get('fix', False),
+                    'gps_source': station.get('fix_source', 'none'),
+                })
+            except Exception:
+                pass
+
         except Exception as e:
             logger.error(f"BLE broadcast loop error: {e}")
 
+
+# --- Start GPS reader ---
+
 def start_gps_reader():
-    """Initialize and start the GPS reader."""
+    """Initialize and start the GPS reader with position fallback chain."""
     global GPS_READER
     gps_config = BLE_CONFIG.get('gps', {})
     if not gps_config.get('enabled', True):
         logger.info("GPS reader disabled in configuration")
+        # Even without GPS, apply manual/default position
+        _apply_fallback_position()
         return
 
     try:
@@ -14585,29 +14756,67 @@ def start_gps_reader():
             baud_rate=baud_rate,
             callback=gps_update_callback,
         )
+
+        # Apply station default/manual as initial fallback position
+        _apply_fallback_position()
+
         GPS_READER.start()
         logger.info("GPS reader started on %s", serial_port)
 
-        # Start periodic GPS SocketIO broadcast
         gps_broadcast_thread = threading.Thread(target=_gps_broadcast_loop, daemon=True, name='GPSBroadcast')
         gps_broadcast_thread.start()
 
     except ImportError:
         logger.warning("gps_reader module not found – GPS disabled")
+        _apply_fallback_position()
     except Exception as e:
         logger.error(f"Failed to start GPS reader: {e}")
+        _apply_fallback_position()
+
+
+def _apply_fallback_position():
+    """Apply manual override or default position to STATION_GPS if no GPS fix."""
+    station = BLE_CONFIG.get('station', {})
+    with STATION_GPS_LOCK:
+        if STATION_GPS.get('fix'):
+            return  # Already have a live fix
+
+        # Manual override
+        if station.get('manual_override'):
+            m_lat = station.get('manual_lat', 0)
+            m_lon = station.get('manual_lon', 0)
+            if m_lat and m_lon:
+                STATION_GPS['lat'] = m_lat
+                STATION_GPS['lon'] = m_lon
+                STATION_GPS['alt'] = station.get('manual_alt', 0)
+                STATION_GPS['fix_source'] = 'manual'
+                STATION_GPS['timestamp'] = time.time()
+                logger.info("Using manual station position: %.5f, %.5f", m_lat, m_lon)
+                return
+
+        # Default position (only if nothing better)
+        if not STATION_GPS.get('lat') and not STATION_GPS.get('lon'):
+            d_lat = station.get('default_lat', 0)
+            d_lon = station.get('default_lon', 0)
+            if d_lat and d_lon:
+                STATION_GPS['lat'] = d_lat
+                STATION_GPS['lon'] = d_lon
+                STATION_GPS['alt'] = station.get('default_alt', 0)
+                STATION_GPS['fix_source'] = 'default'
+                STATION_GPS['timestamp'] = time.time()
+                logger.info("Using default station position: %.5f, %.5f", d_lat, d_lon)
+
 
 def _gps_broadcast_loop():
     """Periodically broadcast GPS position via SocketIO and MQTT."""
     while not SHUTDOWN_EVENT.is_set():
-        SHUTDOWN_EVENT.wait(5)  # broadcast every 5 seconds
+        SHUTDOWN_EVENT.wait(5)
         if SHUTDOWN_EVENT.is_set():
             break
 
-        with STATION_GPS_LOCK:
-            gps_data = dict(STATION_GPS)
-
-        if gps_data.get('timestamp', 0) > 0:
+        # Use the full resolved position (includes fallback chain)
+        gps_data = resolve_station_position()
+        if gps_data.get('timestamp', 0) > 0 or gps_data.get('lat'):
             try:
                 socketio.emit('gps_update', gps_data)
             except Exception:
@@ -14617,25 +14826,41 @@ def _gps_broadcast_loop():
             except Exception:
                 pass
 
-# ---- BLE & GPS API routes ----
+
+# --- Start MMIP subscriptions ---
+
+def start_mmip():
+    """Subscribe to MMIP topics from other mesh-mapper / World Monitor instances."""
+    global MMIP_CONFIG
+    MMIP_CONFIG = BLE_CONFIG.get('mmip', {})
+    if not MMIP_CONFIG.get('enabled'):
+        logger.info("MMIP disabled in configuration")
+        return
+
+    logger.info("MMIP enabled: source_id=%s, publish=%s, subscribe=%s",
+                MMIP_CONFIG.get('source_id'), MMIP_CONFIG.get('publish'), MMIP_CONFIG.get('subscribe'))
+
+    # Subscribe to configured topic filters
+    if MMIP_CONFIG.get('subscribe'):
+        # Delay to let MQTT connect
+        def _delayed_subscribe():
+            time.sleep(5)
+            mqtt_publisher.subscribe_mmip_events()
+        t = threading.Thread(target=_delayed_subscribe, daemon=True, name='MMIPSubscribe')
+        t.start()
+
+
+# ---- BLE, GPS & Station API routes ----
 
 @app.route('/api/ble_devices', methods=['GET'])
 def api_ble_devices():
     """Return all current BLE devices."""
     if BLE_RADAR:
         devices = BLE_RADAR.get_devices()
-        # Apply category filter
-        cat_filter = BLE_CONFIG.get('categories', {})
-        cat_key_map = {
-            'drone': 'drones', 'phone': 'phones', 'tracker': 'trackers',
-            'vehicle': 'vehicles', 'beacon': 'beacons', 'wearable': 'wearables',
-            'audio': 'audio', 'unknown': 'unknown'
-        }
-        if cat_filter:
-            devices = {m: d for m, d in devices.items()
-                       if cat_filter.get(cat_key_map.get(d.get('category', 'unknown'), 'unknown'), True)}
-        return jsonify({"status": "ok", "devices": devices, "count": len(devices)})
+        filtered = {m: d for m, d in devices.items() if _category_allowed(d.get('category', 'unknown'))}
+        return jsonify({"status": "ok", "devices": filtered, "count": len(filtered)})
     return jsonify({"status": "ok", "devices": {}, "count": 0})
+
 
 @app.route('/api/ble_stats', methods=['GET'])
 def api_ble_stats():
@@ -14645,43 +14870,125 @@ def api_ble_stats():
         return jsonify({"status": "ok", **stats})
     return jsonify({"status": "ok", "total_devices": 0, "total_packets": 0, "by_category": {}})
 
+
 @app.route('/api/ble_config', methods=['GET'])
 def api_ble_config_get():
-    """Return current BLE configuration."""
+    """Return full BLE/GPS/station/MMIP configuration."""
     return jsonify({"status": "ok", "config": BLE_CONFIG})
+
 
 @app.route('/api/ble_config', methods=['POST'])
 def api_ble_config_post():
-    """Update BLE configuration."""
-    global BLE_CONFIG, BLE_ENABLED
+    """Update BLE/GPS/station/MMIP configuration.
+    Accepts partial updates — only provided keys are changed.
+    """
+    global BLE_CONFIG, BLE_ENABLED, GPS_ENABLED, MMIP_CONFIG
     data = request.get_json()
     if not data:
         return jsonify({"status": "error", "message": "No data provided"}), 400
 
-    # Merge updates
+    # Top-level BLE fields
+    for key in ('enabled', 'serial_port', 'baud_rate', 'rssi_min',
+                'scan_mode', 'stale_timeout_seconds', 'publish_interval_seconds'):
+        if key in data:
+            BLE_CONFIG[key] = data[key]
+
     if 'enabled' in data:
-        BLE_CONFIG['enabled'] = data['enabled']
         BLE_ENABLED = data['enabled']
+
+    # Categories (merge)
     if 'categories' in data:
-        BLE_CONFIG['categories'] = data['categories']
-    if 'rssi_min' in data:
-        BLE_CONFIG['rssi_min'] = data['rssi_min']
-    if 'stale_timeout_seconds' in data:
-        BLE_CONFIG['stale_timeout_seconds'] = data['stale_timeout_seconds']
-    if 'publish_interval_seconds' in data:
-        BLE_CONFIG['publish_interval_seconds'] = data['publish_interval_seconds']
+        BLE_CONFIG.setdefault('categories', {}).update(data['categories'])
+
+    # GPS sub-section (merge)
     if 'gps' in data:
-        BLE_CONFIG['gps'] = data['gps']
+        BLE_CONFIG.setdefault('gps', {}).update(data['gps'])
+        GPS_ENABLED = BLE_CONFIG['gps'].get('enabled', True)
+
+    # Station sub-section (merge)
+    if 'station' in data:
+        BLE_CONFIG.setdefault('station', {}).update(data['station'])
+        # Re-apply fallback position immediately
+        _apply_fallback_position()
+
+    # MMIP sub-section (merge)
+    if 'mmip' in data:
+        BLE_CONFIG.setdefault('mmip', {}).update(data['mmip'])
+        MMIP_CONFIG = BLE_CONFIG['mmip']
 
     save_ble_config()
     return jsonify({"status": "ok", "config": BLE_CONFIG})
 
+
 @app.route('/api/gps', methods=['GET'])
 def api_gps():
-    """Return current GPS position data."""
-    with STATION_GPS_LOCK:
-        gps_data = dict(STATION_GPS)
+    """Return current GPS position (resolved through fallback chain)."""
+    gps_data = resolve_station_position()
     return jsonify({"status": "ok", **gps_data})
+
+
+@app.route('/api/gps/override', methods=['POST'])
+def api_gps_override():
+    """Manually set or clear station position override.
+
+    POST {"lat": 55.5, "lon": -4.6, "alt": 50}         — set manual override
+    POST {"clear": true}                                  — clear manual override
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"status": "error", "message": "No data provided"}), 400
+
+    station = BLE_CONFIG.setdefault('station', {})
+
+    if data.get('clear'):
+        station['manual_override'] = False
+        station['manual_lat'] = 0
+        station['manual_lon'] = 0
+        station['manual_alt'] = 0
+        save_ble_config()
+        _apply_fallback_position()
+        return jsonify({"status": "ok", "message": "Manual override cleared"})
+
+    lat = data.get('lat', 0)
+    lon = data.get('lon', 0)
+    alt = data.get('alt', 0)
+    if not lat or not lon:
+        return jsonify({"status": "error", "message": "lat and lon required"}), 400
+
+    station['manual_override'] = True
+    station['manual_lat'] = lat
+    station['manual_lon'] = lon
+    station['manual_alt'] = alt
+    save_ble_config()
+    _apply_fallback_position()
+
+    # Also update GPS reader if available
+    if GPS_READER:
+        GPS_READER.set_manual_position(lat, lon, alt)
+
+    return jsonify({"status": "ok", "message": f"Manual override set: {lat}, {lon}"})
+
+
+@app.route('/api/station', methods=['GET'])
+def api_station():
+    """Return full station info: position, name, config, MMIP status."""
+    gps = resolve_station_position()
+    station_cfg = BLE_CONFIG.get('station', {})
+    mmip_cfg = BLE_CONFIG.get('mmip', {})
+    return jsonify({
+        "status": "ok",
+        "station": {
+            "name": station_cfg.get('name', ''),
+            "label": station_cfg.get('label', ''),
+            "position": gps,
+            "mmip": {
+                "enabled": mmip_cfg.get('enabled', False),
+                "source_id": mmip_cfg.get('source_id', ''),
+                "publishing": mmip_cfg.get('publish', False),
+                "subscriptions": MMIP_SUBSCRIPTIONS,
+            },
+        }
+    })
 
 # --- Webhook URL Persistence ---
 WEBHOOK_URL_FILE = os.path.join(BASE_DIR, "webhook_url.json")

@@ -178,6 +178,84 @@
                     <div class="empty-state">No warnings</div>
                 </div>
             </div>
+
+            <hr class="divider">
+
+            <!-- Station / BLE / GPS Settings -->
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="station-settings">
+                    <span>⚙️ Station Settings</span>
+                    <span class="toggle-arrow">▾</span>
+                </h3>
+                <div id="station-settings" class="section-content collapsed">
+                    <div id="station-flash" class="station-flash" style="display:none"></div>
+
+                    <!-- Station Identity -->
+                    <div class="cfg-group">
+                        <div class="cfg-title">📡 Station</div>
+                        <label class="cfg-row"><span>Name</span><input type="text" id="cfg-station-name" placeholder="e.g. Kyle Rise"></label>
+                        <label class="cfg-row"><span>Label</span><input type="text" id="cfg-station-label" placeholder="e.g. Fixed Site"></label>
+                        <label class="cfg-row"><span>Default Lat</span><input type="number" id="cfg-station-default-lat" step="0.0001"></label>
+                        <label class="cfg-row"><span>Default Lon</span><input type="number" id="cfg-station-default-lon" step="0.0001"></label>
+                        <label class="cfg-row"><span>Default Alt (m)</span><input type="number" id="cfg-station-default-alt" step="1"></label>
+                        <button id="btn-save-station" class="cfg-btn">Save Station</button>
+                    </div>
+
+                    <!-- GPS Position Override -->
+                    <div class="cfg-group">
+                        <div class="cfg-title">🎯 Position Override</div>
+                        <label class="cfg-row"><span>Manual Override</span><input type="checkbox" id="cfg-station-manual"></label>
+                        <label class="cfg-row"><span>Lat</span><input type="number" id="cfg-station-manual-lat" step="0.0001"></label>
+                        <label class="cfg-row"><span>Lon</span><input type="number" id="cfg-station-manual-lon" step="0.0001"></label>
+                        <label class="cfg-row"><span>Alt (m)</span><input type="number" id="cfg-station-manual-alt" step="1"></label>
+                        <div style="display:flex;gap:4px">
+                            <button id="btn-set-override" class="cfg-btn">Set Override</button>
+                            <button id="btn-clear-override" class="cfg-btn cfg-btn-secondary">Clear</button>
+                        </div>
+                    </div>
+
+                    <!-- GPS Hardware -->
+                    <div class="cfg-group">
+                        <div class="cfg-title">🛰️ GPS</div>
+                        <label class="cfg-row"><span>Enabled</span><input type="checkbox" id="cfg-gps-enabled"></label>
+                        <label class="cfg-row"><span>Port</span><input type="text" id="cfg-gps-port" placeholder="/dev/ttyACM2"></label>
+                        <label class="cfg-row"><span>Baud</span><input type="number" id="cfg-gps-baud" value="9600"></label>
+                        <button id="btn-save-gps" class="cfg-btn">Save GPS</button>
+                    </div>
+
+                    <!-- BLE Radar -->
+                    <div class="cfg-group">
+                        <div class="cfg-title">📶 BLE Radar</div>
+                        <label class="cfg-row"><span>Enabled</span><input type="checkbox" id="cfg-ble-enabled"></label>
+                        <label class="cfg-row"><span>Port</span><input type="text" id="cfg-ble-port" placeholder="/dev/ttyUSB0"></label>
+                        <label class="cfg-row"><span>Baud</span><input type="number" id="cfg-ble-baud" value="921600"></label>
+                        <label class="cfg-row"><span>Min RSSI</span><input type="number" id="cfg-ble-rssi" value="-100" min="-128" max="0"></label>
+                        <label class="cfg-row"><span>Stale (s)</span><input type="number" id="cfg-ble-stale" value="300"></label>
+                    </div>
+
+                    <!-- BLE Categories -->
+                    <div class="cfg-group">
+                        <div class="cfg-title">🏷️ BLE Categories</div>
+                        <label class="cfg-row"><span>🛩️ Drones</span><input type="checkbox" id="cfg-cat-drones" class="ble-cat-toggle" checked></label>
+                        <label class="cfg-row"><span>📱 Phones</span><input type="checkbox" id="cfg-cat-phones" class="ble-cat-toggle" checked></label>
+                        <label class="cfg-row"><span>📍 Trackers</span><input type="checkbox" id="cfg-cat-trackers" class="ble-cat-toggle" checked></label>
+                        <label class="cfg-row"><span>🚗 Vehicles</span><input type="checkbox" id="cfg-cat-vehicles" class="ble-cat-toggle" checked></label>
+                        <label class="cfg-row"><span>📡 Beacons</span><input type="checkbox" id="cfg-cat-beacons" class="ble-cat-toggle" checked></label>
+                        <label class="cfg-row"><span>⌚ Wearables</span><input type="checkbox" id="cfg-cat-wearables" class="ble-cat-toggle" checked></label>
+                        <label class="cfg-row"><span>🎧 Audio</span><input type="checkbox" id="cfg-cat-audio" class="ble-cat-toggle" checked></label>
+                        <label class="cfg-row"><span>❓ Unknown</span><input type="checkbox" id="cfg-cat-unknown" class="ble-cat-toggle"></label>
+                        <button id="btn-save-ble" class="cfg-btn">Save BLE</button>
+                    </div>
+
+                    <!-- MMIP -->
+                    <div class="cfg-group">
+                        <div class="cfg-title">🌐 MMIP Network</div>
+                        <label class="cfg-row"><span>Enabled</span><input type="checkbox" id="cfg-mmip-enabled"></label>
+                        <label class="cfg-row"><span>Source ID</span><input type="text" id="cfg-mmip-source" placeholder="drone-pi-kyle-rise"></label>
+                        <div class="cfg-hint">Mesh Mapper Interchange Protocol — pub/sub via MQTT for multi-station networking</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </aside>
 
@@ -273,6 +351,7 @@
     <script src="/static/js/panels/drones-panel.js"></script>
     <script src="/static/js/panels/aircraft-panel.js"></script>
     <script src="/static/js/panels/settings-panel.js"></script>
+    <script src="/static/js/panels/station-panel.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -49,6 +49,7 @@
             DronesPanel.init();
             AircraftPanel.init();
             SettingsPanel.init();
+            if (window.StationPanel) StationPanel.init();
 
             // 5. Store layer module references
             layerModules = {

@@ -20,5 +20,27 @@
         "enabled": true,
         "serial_port": "/dev/ttyACM2",
         "baud_rate": 9600
+    },
+    "station": {
+        "name": "Kyle Rise",
+        "label": "Fixed Site — Kyle of Lochalsh",
+        "default_lat": 55.4942,
+        "default_lon": -4.5997,
+        "default_alt": 50,
+        "manual_override": false,
+        "manual_lat": 0,
+        "manual_lon": 0,
+        "manual_alt": 0
+    },
+    "mmip": {
+        "enabled": true,
+        "source_id": "drone-pi-kyle-rise",
+        "source_type": "mesh-mapper",
+        "publish": true,
+        "subscribe": true,
+        "subscribe_filters": [
+            "mmip/+/alerts",
+            "mmip/+/status"
+        ]
     }
 }

@@ -9,12 +9,54 @@ No external dependencies beyond pyserial – parses NMEA directly.
 Author: Mesh-Mapper GPS Integration
 """
 
+import os
+import json
 import time
 import logging
 import threading
 import serial
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Persistent last-known position
+# ---------------------------------------------------------------------------
+GPS_LAST_KNOWN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gps_last_known.json')
+
+
+def _load_last_known(filepath=None):
+    """Load last known GPS position from disk."""
+    fp = filepath or GPS_LAST_KNOWN_FILE
+    if os.path.exists(fp):
+        try:
+            with open(fp, 'r') as f:
+                data = json.load(f)
+            if data.get('lat') and data.get('lon'):
+                logger.info("Loaded last known GPS: %.5f, %.5f (saved %s)",
+                            data['lat'], data['lon'], data.get('saved_at', '?'))
+                return data
+        except Exception as e:
+            logger.warning("Failed to load last known GPS: %s", e)
+    return None
+
+
+def _save_last_known(position, filepath=None):
+    """Persist current GPS position to disk."""
+    fp = filepath or GPS_LAST_KNOWN_FILE
+    try:
+        data = {
+            'lat': position.get('lat', 0),
+            'lon': position.get('lon', 0),
+            'alt': position.get('alt', 0),
+            'heading': position.get('heading', 0),
+            'satellites': position.get('satellites', 0),
+            'saved_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'epoch': time.time(),
+        }
+        with open(fp, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        logger.debug("Failed to save last known GPS: %s", e)
 
 
 def _nmea_checksum(sentence):
@@ -68,18 +110,25 @@ def _safe_int(s, default=0):
 
 
 class GPSReader:
-    """Reads NMEA from a serial port and maintains a live GPS fix."""
+    """Reads NMEA from a serial port and maintains a live GPS fix.
 
-    def __init__(self, serial_port='/dev/ttyACM2', baud_rate=9600, callback=None):
+    Supports persistent last-known position so station location survives
+    restarts and temporary GPS signal loss.
+    """
+
+    def __init__(self, serial_port='/dev/ttyACM2', baud_rate=9600, callback=None,
+                 persist_file=None):
         """
         Args:
-            serial_port: Path to the GPS serial device.
-            baud_rate:   NMEA baud rate (typically 9600 for u-blox 7).
-            callback:    Optional callback(gps_data_dict) on each valid update.
+            serial_port:  Path to the GPS serial device.
+            baud_rate:    NMEA baud rate (typically 9600 for u-blox 7).
+            callback:     Optional callback(gps_data_dict) on each valid update.
+            persist_file: Path for last-known position JSON (None = default).
         """
         self.serial_port = serial_port
         self.baud_rate = baud_rate
         self.callback = callback
+        self._persist_file = persist_file
 
         self._lock = threading.Lock()
         self._position = {
@@ -91,6 +140,7 @@ class GPSReader:
             'heading': 0.0,
             'fix': False,
             'fix_quality': 0,      # 0=invalid, 1=GPS, 2=DGPS, ...
+            'fix_source': 'none',  # none | gps | last_known | manual | default
             'satellites': 0,
             'hdop': 99.99,
             'timestamp': 0,        # epoch seconds of last update
@@ -98,9 +148,19 @@ class GPSReader:
             'utc_date': '',        # DDMMYY from NMEA
         }
 
+        # Load last known position as initial fallback
+        last = _load_last_known(self._persist_file)
+        if last:
+            self._position['lat'] = last.get('lat', 0)
+            self._position['lon'] = last.get('lon', 0)
+            self._position['alt'] = last.get('alt', 0)
+            self._position['fix_source'] = 'last_known'
+            self._position['timestamp'] = last.get('epoch', 0)
+
         self._running = False
         self._thread = None
         self._sentence_count = 0
+        self._last_persist_time = 0  # throttle disk writes
 
     def start(self):
         """Start reading GPS in a background thread."""
@@ -138,6 +198,28 @@ class GPSReader:
     def lon(self):
         with self._lock:
             return self._position['lon']
+
+    def set_manual_position(self, lat, lon, alt=0):
+        """Override position manually (used when GPS has no fix)."""
+        with self._lock:
+            if not self._position['fix']:
+                self._position['lat'] = lat
+                self._position['lon'] = lon
+                self._position['alt'] = alt
+                self._position['fix_source'] = 'manual'
+                self._position['timestamp'] = time.time()
+                logger.info("GPS manual override set: %.5f, %.5f", lat, lon)
+
+    def set_default_position(self, lat, lon, alt=0):
+        """Set default fallback position (lowest priority)."""
+        with self._lock:
+            if self._position['fix_source'] == 'none':
+                self._position['lat'] = lat
+                self._position['lon'] = lon
+                self._position['alt'] = alt
+                self._position['fix_source'] = 'default'
+                self._position['timestamp'] = time.time()
+                logger.info("GPS default position set: %.5f, %.5f", lat, lon)
 
     # ---- internal ----
 
@@ -222,6 +304,7 @@ class GPSReader:
         heading = _safe_float(fields[8])
         utc_date = fields[9] if len(fields) > 9 else ''
 
+        now = time.time()
         with self._lock:
             if is_valid:
                 self._position['lat'] = lat
@@ -230,14 +313,22 @@ class GPSReader:
                 self._position['speed_kmh'] = speed_knots * 1.852
                 self._position['heading'] = heading
                 self._position['fix'] = True
+                self._position['fix_source'] = 'gps'
             else:
                 self._position['fix'] = False
+                # Keep fix_source as whatever it was (last_known, manual, etc.)
             self._position['utc_time'] = utc_time
             self._position['utc_date'] = utc_date
-            self._position['timestamp'] = time.time()
+            self._position['timestamp'] = now
             pos_copy = dict(self._position)
 
         self._sentence_count += 1
+
+        # Persist good fixes to disk (throttled to once per 30s)
+        if is_valid and (now - self._last_persist_time) > 30:
+            self._last_persist_time = now
+            _save_last_known(pos_copy, self._persist_file)
+
         if self.callback and is_valid:
             try:
                 self.callback(pos_copy)
@@ -271,6 +362,7 @@ class GPSReader:
                     self._position['lon'] = lon
                 self._position['alt'] = alt
                 self._position['fix'] = True
+                self._position['fix_source'] = 'gps'
             self._position['timestamp'] = time.time()
 
     def _parse_gsa(self, fields):
