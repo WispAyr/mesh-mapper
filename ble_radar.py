@@ -26,37 +26,39 @@ logger = logging.getLogger(__name__)
 # Sniffle import helper – the library lives in the Sniffle checkout
 # ---------------------------------------------------------------------------
 SNIFFLE_PATHS = [
+    os.environ.get('SNIFFLE_PYTHON_CLI', ''),
     os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Sniffle', 'python_cli'),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Sniffle', 'python_cli'),
     '/home/drone/Sniffle/python_cli',
     os.path.expanduser('~/Sniffle/python_cli'),
 ]
 
 _sniffle_available = False
-for _p in SNIFFLE_PATHS:
-    if os.path.isdir(_p) and _p not in sys.path:
-        sys.path.insert(0, _p)
-        try:
-            from sniffle.sniffle_hw import make_sniffle_hw, SnifferMode
-            from sniffle.packet_decoder import (
-                PacketMessage, DPacketMessage, AdvertMessage, AdvaMessage,
-                AdvIndMessage, AdvNonconnIndMessage, AdvScanIndMessage,
-                ScanRspMessage, AdvExtIndMessage, AuxAdvIndMessage,
-                AuxScanRspMessage, AdvDirectIndMessage,
-            )
-            from sniffle.advdata.decoder import decode_adv_data
-            from sniffle.advdata.ad_types import (
-                ManufacturerSpecificDataRecord, ServiceData16Record,
-                ServiceList16Record, ServiceList128Record,
-                CompleteLocalNameRecord, ShortenedLocalNameRecord,
-            )
-            _sniffle_available = True
-            logger.info("Sniffle library loaded from %s", _p)
-            break
-        except ImportError as exc:
-            logger.debug("Sniffle import failed from %s: %s", _p, exc)
 
-if not _sniffle_available:
-    logger.warning("Sniffle library not found – BLE Radar will be unavailable")
+# First, add all valid Sniffle paths to sys.path
+for _p in SNIFFLE_PATHS:
+    if _p and os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+
+# Now attempt the import
+try:
+    from sniffle.sniffle_hw import make_sniffle_hw, SnifferMode
+    from sniffle.packet_decoder import (
+        PacketMessage, DPacketMessage, AdvertMessage, AdvaMessage,
+        AdvIndMessage, AdvNonconnIndMessage, AdvScanIndMessage,
+        ScanRspMessage, AdvExtIndMessage, AuxAdvIndMessage,
+        AuxScanRspMessage, AdvDirectIndMessage,
+    )
+    from sniffle.advdata.decoder import decode_adv_data
+    from sniffle.advdata.ad_types import (
+        ManufacturerSpecificDataRecord, ServiceData16Record,
+        ServiceList16Record, ServiceList128Record,
+        CompleteLocalNameRecord, ShortenedLocalNameRecord,
+    )
+    _sniffle_available = True
+    logger.info("Sniffle library loaded successfully")
+except ImportError as exc:
+    logger.warning("Sniffle library not found – BLE Radar will be unavailable: %s", exc)
 
 # ---------------------------------------------------------------------------
 # Constants – BLE company IDs and service UUIDs for classification

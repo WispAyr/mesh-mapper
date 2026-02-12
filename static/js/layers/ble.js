@@ -105,21 +105,6 @@ window.BLELayer = (function() {
             map.getCanvas().style.cursor = '';
         });
 
-        // GPS station marker layer
-        map.addLayer({
-            id: 'gps-station-layer',
-            type: 'circle',
-            source: 'ble-devices',
-            filter: ['==', ['get', 'is_station'], true],
-            paint: {
-                'circle-radius': 10,
-                'circle-color': '#00ff88',
-                'circle-opacity': 0.9,
-                'circle-stroke-width': 3,
-                'circle-stroke-color': '#ffffff'
-            }
-        });
-
         // Socket events
         MeshSocket.on('ble_devices', handleBLEDevices);
         MeshSocket.on('ble_device_new', handleNewDevice);
