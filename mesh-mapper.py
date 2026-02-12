@@ -133,6 +133,7 @@ STATION_GPS_LOCK = threading.Lock()
 # MMIP (Mesh Mapper Interchange Protocol) configuration
 MMIP_CONFIG = {}
 MMIP_SUBSCRIPTIONS = []  # list of active MQTT subscription topic filters
+MMIP_PUBLISHER = None  # MMIPPublisher instance (set in start_mmip)
 
 import paho.mqtt.client as mqtt
 MQTT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mqtt_config.json')
@@ -2738,7 +2739,7 @@ def requires_auth(f):
     return decorated
 
 # Exempt paths that don't need auth
-AUTH_EXEMPT_PATHS = {'/health', '/api/health'}
+AUTH_EXEMPT_PATHS = {'/health', '/api/health', '/api/mmip/status'}
 
 @app.before_request
 def before_request_auth():
@@ -2761,6 +2762,13 @@ def health_check():
 def api_health_check():
     """Unauthenticated API health check endpoint."""
     return jsonify({"status": "ok", "uptime": time.time()}), 200
+
+@app.route('/api/mmip/status', methods=['GET'])
+def api_mmip_status():
+    """MMIP publisher status and statistics."""
+    if MMIP_PUBLISHER:
+        return jsonify({"status": "ok", **MMIP_PUBLISHER.stats}), 200
+    return jsonify({"status": "disabled", "running": False}), 200
 
 # Define emit_serial_status early to avoid NameError in threads
 def emit_serial_status():
@@ -15471,11 +15479,64 @@ def _gps_broadcast_loop():
                 pass
 
 
-# --- Start MMIP subscriptions ---
+# --- Start MMIP subscriptions + publisher ---
+
+def _get_data_counts():
+    """Collect active counts from all data sources for MMIP status heartbeat."""
+    counts = {}
+    try:
+        with ADSB_AIRCRAFT_LOCK:
+            counts["aircraft"] = len(ADSB_AIRCRAFT)
+    except Exception:
+        counts["aircraft"] = 0
+    try:
+        with AIS_VESSELS_LOCK:
+            counts["vessels"] = len(AIS_VESSELS)
+    except Exception:
+        counts["vessels"] = 0
+    try:
+        with APRS_STATIONS_LOCK:
+            counts["aprs_stations"] = len(APRS_STATIONS)
+    except Exception:
+        counts["aprs_stations"] = 0
+    try:
+        counts["drones"] = len(tracked_pairs)
+    except Exception:
+        counts["drones"] = 0
+    try:
+        if BLE_RADAR:
+            stats = BLE_RADAR.get_stats()
+            counts["ble_devices"] = stats.get("total_devices", 0)
+            counts["ble_packets"] = stats.get("total_packets", 0)
+        else:
+            counts["ble_devices"] = 0
+    except Exception:
+        counts["ble_devices"] = 0
+    try:
+        counts["weather_warnings"] = len(METOFFICE_WARNINGS)
+    except Exception:
+        counts["weather_warnings"] = 0
+    counts["mqtt_connected"] = mqtt_publisher.is_connected if mqtt_publisher else False
+    return counts
+
+
+def _get_station_gps():
+    """Get current station GPS position (thread-safe)."""
+    with STATION_GPS_LOCK:
+        gps = dict(STATION_GPS)
+    # Add fix status from resolve_station_position if available
+    try:
+        station = resolve_station_position()
+        gps["fix"] = station.get("fix", False)
+        gps["fix_source"] = station.get("fix_source", "none")
+    except Exception:
+        pass
+    return gps
+
 
 def start_mmip():
-    """Subscribe to MMIP topics from other mesh-mapper / World Monitor instances."""
-    global MMIP_CONFIG
+    """Start MMIP publisher and subscriber (Mesh Mapper Interchange Protocol)."""
+    global MMIP_CONFIG, MMIP_PUBLISHER
     MMIP_CONFIG = BLE_CONFIG.get('mmip', {})
     if not MMIP_CONFIG.get('enabled'):
         logger.info("MMIP disabled in configuration")
@@ -15484,7 +15545,24 @@ def start_mmip():
     logger.info("MMIP enabled: source_id=%s, publish=%s, subscribe=%s",
                 MMIP_CONFIG.get('source_id'), MMIP_CONFIG.get('publish'), MMIP_CONFIG.get('subscribe'))
 
-    # Subscribe to configured topic filters
+    # Start MMIP Publisher (event_bus → MQTT)
+    if MMIP_CONFIG.get('publish') and event_bus:
+        try:
+            from mmip_publisher import MMIPPublisher
+            MMIP_PUBLISHER = MMIPPublisher(
+                event_bus=event_bus,
+                mqtt_publisher=mqtt_publisher,
+                mmip_config=MMIP_CONFIG,
+                station_gps_getter=_get_station_gps,
+                data_counts_getter=_get_data_counts,
+                socketio=socketio,
+            )
+            MMIP_PUBLISHER.start(shutdown_event=SHUTDOWN_EVENT)
+            logger.info("MMIP publisher started successfully")
+        except Exception as e:
+            logger.error("Failed to start MMIP publisher: %s", e)
+
+    # Subscribe to configured topic filters (incoming MMIP from other nodes)
     if MMIP_CONFIG.get('subscribe'):
         # Delay to let MQTT connect
         def _delayed_subscribe():
