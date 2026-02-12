@@ -11,38 +11,20 @@ window.WebcamLayer = (function() {
     function init() {
         var map = MeshMap.getMap();
 
-        map.addLayer({
-            id: 'webcam-layer',
-            type: 'circle',
-            source: 'webcams',
-            paint: {
-                'circle-radius': 5,
-                'circle-color': '#66bb6a',
-                'circle-opacity': 0.8,
-                'circle-stroke-width': 1,
-                'circle-stroke-color': '#338833'
+        // Load webcam/camera icon
+        var svgString = MeshIcons.webcam('#88ccff');
+        var img = new Image(18, 18);
+        img.onload = function() {
+            if (!map.hasImage('webcam-icon')) {
+                map.addImage('webcam-icon', img, { sdf: false });
             }
-        });
-
-        map.addLayer({
-            id: 'webcam-labels',
-            type: 'symbol',
-            source: 'webcams',
-            minzoom: 10,
-            layout: {
-                'text-field': ['get', 'title'],
-                'text-font': ['Open Sans Regular'],
-                'text-size': 9,
-                'text-offset': [0, 1.5],
-                'text-anchor': 'top',
-                'text-optional': true
-            },
-            paint: {
-                'text-color': '#66bb6a',
-                'text-halo-color': '#0a0e1a',
-                'text-halo-width': 1
-            }
-        });
+            _addWebcamLayers(map);
+        };
+        img.onerror = function() {
+            console.warn('[WebcamLayer] Icon load failed, using circle fallback');
+            _addWebcamLayersFallback(map);
+        };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
 
         map.on('click', 'webcam-layer', function(e) {
             if (e.features && e.features.length) {
@@ -60,6 +42,70 @@ window.WebcamLayer = (function() {
         MeshSocket.on('webcams_data', handleWebcams);
 
         console.log('[WebcamLayer] Initialized');
+    }
+
+    function _addWebcamLayers(map) {
+        map.addLayer({
+            id: 'webcam-layer',
+            type: 'symbol',
+            source: 'webcams',
+            layout: {
+                'icon-image': 'webcam-icon',
+                'icon-size': [
+                    'interpolate', ['linear'], ['zoom'],
+                    4, 0.7,
+                    10, 1.0,
+                    14, 1.3
+                ],
+                'icon-allow-overlap': true,
+                'text-field': ['step', ['zoom'], '', 10, ['get', 'title']],
+                'text-font': ['Open Sans Regular'],
+                'text-size': 9,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-optional': true
+            },
+            paint: {
+                'text-color': '#88ccff',
+                'text-halo-color': '#0a0e1a',
+                'text-halo-width': 1
+            }
+        });
+    }
+
+    function _addWebcamLayersFallback(map) {
+        map.addLayer({
+            id: 'webcam-layer',
+            type: 'circle',
+            source: 'webcams',
+            paint: {
+                'circle-radius': 5,
+                'circle-color': '#88ccff',
+                'circle-opacity': 0.8,
+                'circle-stroke-width': 1,
+                'circle-stroke-color': '#5588aa'
+            }
+        });
+
+        map.addLayer({
+            id: 'webcam-labels',
+            type: 'symbol',
+            source: 'webcams',
+            minzoom: 10,
+            layout: {
+                'text-field': ['get', 'title'],
+                'text-font': ['Open Sans Regular'],
+                'text-size': 9,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-optional': true
+            },
+            paint: {
+                'text-color': '#88ccff',
+                'text-halo-color': '#0a0e1a',
+                'text-halo-width': 1
+            }
+        });
     }
 
     function handleWebcams(data) {
@@ -133,7 +179,8 @@ window.WebcamLayer = (function() {
     function setVisible(vis) {
         visible = vis;
         MeshMap.setLayerVisibility('webcam-layer', vis);
-        MeshMap.setLayerVisibility('webcam-labels', vis);
+        // webcam-labels only exists in fallback mode
+        try { MeshMap.setLayerVisibility('webcam-labels', vis); } catch(e) {}
     }
 
     function updateCount() {

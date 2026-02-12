@@ -33,64 +33,55 @@ window.BLELayer = (function() {
         unknown:  '❓'
     };
 
+    // Icon loading map: category -> { iconName, svgFunc, color }
+    var BLE_ICON_MAP = {
+        drone:    { name: 'ble-drone',    fn: 'drone',      color: '#ff3333' },
+        phone:    { name: 'ble-phone',    fn: 'blePhone',   color: '#00aaff' },
+        tracker:  { name: 'ble-tracker',  fn: 'bleTracker', color: '#ff9900' },
+        vehicle:  { name: 'ble-vehicle',  fn: 'bleVehicle', color: '#22cc44' },
+        beacon:   { name: 'ble-beacon',   fn: 'bleBeacon',  color: '#aa66ff' },
+        wearable: { name: 'ble-wearable', fn: 'bleWearable',color: '#ff66aa' },
+        audio:    { name: 'ble-audio',    fn: 'bleAudio',   color: '#66ddff' },
+        unknown:  { name: 'ble-unknown',  fn: 'bleUnknown', color: '#888888' }
+    };
+
+    function _loadBLEIcons(map, callback) {
+        var cats = Object.keys(BLE_ICON_MAP);
+        var loaded = 0;
+        var total = cats.length;
+
+        cats.forEach(function(cat) {
+            var info = BLE_ICON_MAP[cat];
+            var svgFn = MeshIcons[info.fn];
+            if (!svgFn) { loaded++; return; }
+
+            var svgString = svgFn(info.color);
+            var img = new Image(20, 20);
+            img.onload = function() {
+                if (!map.hasImage(info.name)) {
+                    map.addImage(info.name, img, { sdf: false });
+                }
+                loaded++;
+                if (loaded >= total && callback) callback();
+            };
+            img.onerror = function() {
+                console.warn('[BLELayer] Failed to load icon for ' + cat);
+                loaded++;
+                if (loaded >= total && callback) callback();
+            };
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+        });
+    }
+
     function init() {
         var map = MeshMap.getMap();
 
-        // BLE device circle layer
-        map.addLayer({
-            id: 'ble-layer',
-            type: 'circle',
-            source: 'ble-devices',
-            paint: {
-                'circle-radius': [
-                    'interpolate', ['linear'], ['zoom'],
-                    4, 3,
-                    10, 5,
-                    14, 8
-                ],
-                'circle-color': ['match', ['get', 'category'],
-                    'drone',    COLORS.drone,
-                    'phone',    COLORS.phone,
-                    'tracker',  COLORS.tracker,
-                    'vehicle',  COLORS.vehicle,
-                    'beacon',   COLORS.beacon,
-                    'wearable', COLORS.wearable,
-                    'audio',    COLORS.audio,
-                    COLORS.unknown
-                ],
-                'circle-opacity': 0.8,
-                'circle-stroke-width': 1.5,
-                'circle-stroke-color': ['match', ['get', 'category'],
-                    'drone',  '#cc0000',
-                    'tracker','#cc7700',
-                    '#444444'
-                ]
-            }
+        // Load all BLE category icons, then add symbol layer
+        _loadBLEIcons(map, function() {
+            _addBLELayers(map);
         });
 
-        // BLE labels at higher zoom
-        map.addLayer({
-            id: 'ble-labels',
-            type: 'symbol',
-            source: 'ble-devices',
-            minzoom: 10,
-            layout: {
-                'text-field': ['coalesce', ['get', 'name'], ['get', 'subcategory'], ['get', 'category']],
-                'text-font': ['Open Sans Regular'],
-                'text-size': 9,
-                'text-offset': [0, 1.5],
-                'text-anchor': 'top',
-                'text-optional': true,
-                'text-max-width': 10
-            },
-            paint: {
-                'text-color': '#cccccc',
-                'text-halo-color': '#0a0e1a',
-                'text-halo-width': 1
-            }
-        });
-
-        // Click handler
+        // Click handler (attached early, layer id won't change)
         map.on('click', 'ble-layer', function(e) {
             if (e.features && e.features.length) {
                 var props = e.features[0].properties;
@@ -113,7 +104,7 @@ window.BLELayer = (function() {
 
         // Also fetch initial GPS data via REST
         fetch('/api/gps').then(function(r) { return r.json(); }).then(function(data) {
-            if (data && data.fix) handleGPSUpdate(data);
+            if (data && (data.fix || (data.lat && data.lon))) handleGPSUpdate(data);
         }).catch(function() {});
 
         // Fetch initial BLE data via REST
@@ -126,6 +117,51 @@ window.BLELayer = (function() {
         }).catch(function() {});
 
         console.log('[BLELayer] Initialized');
+    }
+
+    function _addBLELayers(map) {
+        // BLE device symbol layer with per-category icons
+        map.addLayer({
+            id: 'ble-layer',
+            type: 'symbol',
+            source: 'ble-devices',
+            layout: {
+                'icon-image': ['match', ['get', 'category'],
+                    'drone',    'ble-drone',
+                    'phone',    'ble-phone',
+                    'tracker',  'ble-tracker',
+                    'vehicle',  'ble-vehicle',
+                    'beacon',   'ble-beacon',
+                    'wearable', 'ble-wearable',
+                    'audio',    'ble-audio',
+                    'ble-unknown'
+                ],
+                'icon-size': [
+                    'interpolate', ['linear'], ['zoom'],
+                    4, 0.6,
+                    10, 1.0,
+                    14, 1.4
+                ],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+                'text-field': ['step', ['zoom'], '', 10,
+                    ['coalesce', ['get', 'name'], ['get', 'subcategory'], ['get', 'category']]
+                ],
+                'text-font': ['Open Sans Regular'],
+                'text-size': 9,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-optional': true,
+                'text-max-width': 10
+            },
+            paint: {
+                'text-color': '#cccccc',
+                'text-halo-color': '#0a0e1a',
+                'text-halo-width': 1
+            }
+        });
+
+        console.log('[BLELayer] Symbol layers added with category icons');
     }
 
     function handleBLEDevices(data) {
@@ -249,7 +285,6 @@ window.BLELayer = (function() {
     function setVisible(vis) {
         visible = vis;
         MeshMap.setLayerVisibility('ble-layer', vis);
-        MeshMap.setLayerVisibility('ble-labels', vis);
     }
 
     function updateCount() {
@@ -296,30 +331,50 @@ window.BLELayer = (function() {
         // Update GPS info in stats panel
         var gpsEl = document.getElementById('gps-status');
         if (gpsEl) {
-            if (data.fix) {
+            var src = data.fix_source || (data.fix ? 'gps' : 'none');
+            if (data.fix && src === 'gps') {
                 gpsEl.innerHTML = '<span style="color:#00ff88">● FIX</span> ' +
                     data.lat.toFixed(5) + ', ' + data.lon.toFixed(5) +
                     ' <span style="color:#888">' + data.satellites + ' sats</span>';
+            } else if (src === 'last_known' && data.lat && data.lon) {
+                gpsEl.innerHTML = '<span style="color:#ffaa00">● CACHED</span> ' +
+                    data.lat.toFixed(5) + ', ' + data.lon.toFixed(5) +
+                    ' <span style="color:#888">last known</span>';
+            } else if (src === 'manual' && data.lat && data.lon) {
+                gpsEl.innerHTML = '<span style="color:#888">● MANUAL</span> ' +
+                    data.lat.toFixed(5) + ', ' + data.lon.toFixed(5);
             } else {
                 gpsEl.innerHTML = '<span style="color:#ff6666">● NO FIX</span> ' +
                     '<span style="color:#888">' + (data.satellites || 0) + ' sats</span>';
             }
         }
 
-        // Update station marker on map if we have a fix
-        if (data.fix && data.lat && data.lon) {
-            updateStationMarker(data.lat, data.lon);
+        // Update station marker on map if we have a position (fix, last_known, manual, or default)
+        if (data.lat && data.lon && data.lat !== 0 && data.lon !== 0) {
+            updateStationMarker(data.lat, data.lon, data.fix_source || (data.fix ? 'gps' : 'unknown'));
         }
 
         // Re-render BLE devices (they use station position)
         updateMap();
     }
 
-    function updateStationMarker(lat, lon) {
-        // We inject the station marker into the ble-devices source during updateMap
-        // by using a special feature – but simpler to use a dedicated source
+    function updateStationMarker(lat, lon, fixSource) {
         var map = MeshMap.getMap();
         if (!map) return;
+
+        // Color based on fix source: green=GPS, amber=last_known, grey=manual/default
+        var markerColor = '#00ff88';
+        var labelSuffix = '';
+        if (fixSource === 'last_known') {
+            markerColor = '#ffaa00';
+            labelSuffix = ' (cached)';
+        } else if (fixSource === 'manual') {
+            markerColor = '#888888';
+            labelSuffix = ' (manual)';
+        } else if (fixSource === 'default') {
+            markerColor = '#666666';
+            labelSuffix = ' (default)';
+        }
 
         // Use a separate source for the station marker
         if (!map.getSource('gps-station')) {
@@ -336,7 +391,7 @@ window.BLELayer = (function() {
                     'circle-radius': 14,
                     'circle-color': 'transparent',
                     'circle-stroke-width': 2,
-                    'circle-stroke-color': '#00ff88',
+                    'circle-stroke-color': ['get', 'color'],
                     'circle-stroke-opacity': 0.5
                 }
             });
@@ -347,7 +402,7 @@ window.BLELayer = (function() {
                 source: 'gps-station',
                 paint: {
                     'circle-radius': 7,
-                    'circle-color': '#00ff88',
+                    'circle-color': ['get', 'color'],
                     'circle-opacity': 0.9,
                     'circle-stroke-width': 2,
                     'circle-stroke-color': '#ffffff'
@@ -359,14 +414,14 @@ window.BLELayer = (function() {
                 type: 'symbol',
                 source: 'gps-station',
                 layout: {
-                    'text-field': '📡 Station',
+                    'text-field': ['get', 'label'],
                     'text-font': ['Open Sans Regular'],
                     'text-size': 10,
                     'text-offset': [0, 2],
                     'text-anchor': 'top'
                 },
                 paint: {
-                    'text-color': '#00ff88',
+                    'text-color': ['get', 'color'],
                     'text-halo-color': '#0a0e1a',
                     'text-halo-width': 1
                 }
@@ -378,7 +433,11 @@ window.BLELayer = (function() {
             features: [{
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [lon, lat] },
-                properties: { is_station: true }
+                properties: {
+                    is_station: true,
+                    color: markerColor,
+                    label: '📡 Station' + labelSuffix
+                }
             }]
         });
     }

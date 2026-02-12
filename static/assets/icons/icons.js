@@ -89,6 +89,75 @@ window.MeshIcons = (function() {
             '</svg>';
     }
 
+    // BLE device category icons
+    function blePhone(color) {
+        color = color || '#00aaff';
+        return '<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">' +
+            '<rect x="6" y="2" width="8" height="16" rx="2" fill="' + color + '" opacity="0.8"/>' +
+            '<rect x="8" y="4" width="4" height="9" rx="0.5" fill="#0a0e1a" opacity="0.5"/>' +
+            '<circle cx="10" cy="15.5" r="1" fill="#0a0e1a"/>' +
+            '</svg>';
+    }
+
+    function bleTracker(color) {
+        color = color || '#ff9900';
+        return '<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">' +
+            '<circle cx="10" cy="10" r="7" fill="' + color + '" opacity="0.3" stroke="' + color + '" stroke-width="1.5"/>' +
+            '<circle cx="10" cy="10" r="3" fill="' + color + '" opacity="0.7"/>' +
+            '<line x1="10" y1="2" x2="10" y2="5" stroke="' + color + '" stroke-width="1.5"/>' +
+            '<line x1="10" y1="15" x2="10" y2="18" stroke="' + color + '" stroke-width="1.5"/>' +
+            '<line x1="2" y1="10" x2="5" y2="10" stroke="' + color + '" stroke-width="1.5"/>' +
+            '<line x1="15" y1="10" x2="18" y2="10" stroke="' + color + '" stroke-width="1.5"/>' +
+            '</svg>';
+    }
+
+    function bleBeacon(color) {
+        color = color || '#aa66ff';
+        return '<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">' +
+            '<circle cx="10" cy="12" r="3" fill="' + color + '"/>' +
+            '<path d="M5 8a7 7 0 0 1 10 0" fill="none" stroke="' + color + '" stroke-width="1.5" opacity="0.7"/>' +
+            '<path d="M3 5.5a10 10 0 0 1 14 0" fill="none" stroke="' + color + '" stroke-width="1.5" opacity="0.4"/>' +
+            '<line x1="10" y1="15" x2="10" y2="18" stroke="' + color + '" stroke-width="2"/>' +
+            '</svg>';
+    }
+
+    function bleWearable(color) {
+        color = color || '#ff66aa';
+        return '<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">' +
+            '<rect x="6" y="5" width="8" height="10" rx="3" fill="' + color + '" opacity="0.7"/>' +
+            '<rect x="8" y="7" width="4" height="5" rx="1" fill="#0a0e1a" opacity="0.4"/>' +
+            '<path d="M9 5V2h2v3" fill="none" stroke="' + color + '" stroke-width="1.5"/>' +
+            '<path d="M9 15v3h2v-3" fill="none" stroke="' + color + '" stroke-width="1.5"/>' +
+            '</svg>';
+    }
+
+    function bleAudio(color) {
+        color = color || '#66ddff';
+        return '<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">' +
+            '<path d="M4 8v4h3l4 3V5L7 8H4z" fill="' + color + '" opacity="0.8"/>' +
+            '<path d="M13 7c1 1 1 5 0 6" fill="none" stroke="' + color + '" stroke-width="1.5" opacity="0.7"/>' +
+            '<path d="M15 5c2 2 2 8 0 10" fill="none" stroke="' + color + '" stroke-width="1.5" opacity="0.4"/>' +
+            '</svg>';
+    }
+
+    function bleVehicle(color) {
+        color = color || '#22cc44';
+        return '<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">' +
+            '<path d="M3 12l2-5h10l2 5v3H3v-3z" fill="' + color + '" opacity="0.7"/>' +
+            '<rect x="4" y="9" width="12" height="4" rx="1" fill="' + color + '" opacity="0.3"/>' +
+            '<circle cx="6" cy="15" r="1.5" fill="' + color + '"/>' +
+            '<circle cx="14" cy="15" r="1.5" fill="' + color + '"/>' +
+            '</svg>';
+    }
+
+    function bleUnknown(color) {
+        color = color || '#888888';
+        return '<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">' +
+            '<circle cx="10" cy="10" r="7" fill="' + color + '" opacity="0.3" stroke="' + color + '" stroke-width="1.5"/>' +
+            '<circle cx="10" cy="10" r="2.5" fill="' + color + '" opacity="0.6"/>' +
+            '</svg>';
+    }
+
     return {
         drone: drone,
         pilot: pilot,
@@ -97,6 +166,13 @@ window.MeshIcons = (function() {
         aprs: aprs,
         lightning: lightning,
         webcam: webcam,
-        warning: warning
+        warning: warning,
+        blePhone: blePhone,
+        bleTracker: bleTracker,
+        bleBeacon: bleBeacon,
+        bleWearable: bleWearable,
+        bleAudio: bleAudio,
+        bleVehicle: bleVehicle,
+        bleUnknown: bleUnknown
     };
 })();

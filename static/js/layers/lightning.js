@@ -13,6 +13,84 @@ window.LightningLayer = (function() {
     function init() {
         var map = MeshMap.getMap();
 
+        // Load lightning bolt icon
+        var svgString = MeshIcons.lightning('#ffee00');
+        var img = new Image(18, 18);
+        img.onload = function() {
+            if (!map.hasImage('lightning-icon')) {
+                map.addImage('lightning-icon', img, { sdf: false });
+            }
+            _addLightningLayer(map);
+        };
+        img.onerror = function() {
+            console.warn('[LightningLayer] Icon load failed, using circle fallback');
+            _addLightningLayerFallback(map);
+        };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+
+        map.on('click', 'lightning-layer', function(e) {
+            if (e.features && e.features.length) {
+                showLightningPopup(e.lngLat, e.features[0].properties);
+            }
+        });
+
+        map.on('mouseenter', 'lightning-layer', function() {
+            map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'lightning-layer', function() {
+            map.getCanvas().style.cursor = '';
+        });
+
+        // Socket events
+        MeshSocket.on('lightning_strike', handleStrike);
+        MeshSocket.on('lightning_alert', handleAlert);
+
+        // Fade timer
+        setInterval(updateFade, 10000);
+
+        console.log('[LightningLayer] Initialized');
+    }
+
+    function _addLightningLayer(map) {
+        map.addLayer({
+            id: 'lightning-layer',
+            type: 'symbol',
+            source: 'lightning',
+            layout: {
+                'icon-image': 'lightning-icon',
+                'icon-size': [
+                    'interpolate', ['linear'], ['get', 'age'],
+                    0, 1.4,
+                    1, 0.5
+                ],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+                'text-field': ['step', ['zoom'], '', 10, ['get', 'time']],
+                'text-font': ['Open Sans Regular'],
+                'text-size': 9,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-optional': true
+            },
+            paint: {
+                'icon-opacity': [
+                    'interpolate', ['linear'], ['get', 'age'],
+                    0, 1.0,
+                    1, 0.15
+                ],
+                'text-color': '#ffee00',
+                'text-opacity': [
+                    'interpolate', ['linear'], ['get', 'age'],
+                    0, 0.8,
+                    1, 0.1
+                ],
+                'text-halo-color': '#0a0e1a',
+                'text-halo-width': 1
+            }
+        });
+    }
+
+    function _addLightningLayerFallback(map) {
         map.addLayer({
             id: 'lightning-layer',
             type: 'circle',
@@ -38,21 +116,6 @@ window.LightningLayer = (function() {
                 ]
             }
         });
-
-        map.on('click', 'lightning-layer', function(e) {
-            if (e.features && e.features.length) {
-                showLightningPopup(e.lngLat, e.features[0].properties);
-            }
-        });
-
-        // Socket events
-        MeshSocket.on('lightning_strike', handleStrike);
-        MeshSocket.on('lightning_alert', handleAlert);
-
-        // Fade timer
-        setInterval(updateFade, 10000);
-
-        console.log('[LightningLayer] Initialized');
     }
 
     function handleStrike(data) {
