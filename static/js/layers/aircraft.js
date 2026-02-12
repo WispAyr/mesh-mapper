@@ -12,7 +12,64 @@ window.AircraftLayer = (function() {
     function init() {
         var map = MeshMap.getMap();
 
-        // Aircraft icon layer using symbols
+        // Load aircraft icon from SVG, then add layer
+        var svgString = MeshIcons.aircraft('#00d4ff', 0);
+        var img = new Image(24, 24);
+        img.onload = function() {
+            if (!map.hasImage('aircraft-icon')) {
+                map.addImage('aircraft-icon', img, { sdf: false });
+            }
+            addLayers();
+        };
+        img.onerror = function() {
+            console.warn('[AircraftLayer] Failed to load aircraft icon, falling back to circle');
+            addLayersFallback();
+        };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+    }
+
+    function addLayers() {
+        var map = MeshMap.getMap();
+
+        // Aircraft symbol layer with icon
+        map.addLayer({
+            id: 'aircraft-layer',
+            type: 'symbol',
+            source: 'aircraft',
+            layout: {
+                'icon-image': 'aircraft-icon',
+                'icon-size': [
+                    'interpolate', ['linear'], ['zoom'],
+                    4, 0.5,
+                    8, 0.8,
+                    12, 1.2
+                ],
+                'icon-rotate': ['coalesce', ['get', 'track'], 0],
+                'icon-rotation-alignment': 'map',
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+                'text-field': ['step', ['zoom'], '', 8, ['get', 'callsign']],
+                'text-font': ['Open Sans Regular'],
+                'text-size': 10,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-optional': true
+            },
+            paint: {
+                'text-color': '#00d4ff',
+                'text-halo-color': '#0a0e1a',
+                'text-halo-width': 1
+            }
+        });
+
+        attachHandlers();
+        console.log('[AircraftLayer] Initialized with icon');
+    }
+
+    function addLayersFallback() {
+        var map = MeshMap.getMap();
+
+        // Fallback: circle layer if icon fails to load
         map.addLayer({
             id: 'aircraft-layer',
             type: 'circle',
@@ -52,6 +109,13 @@ window.AircraftLayer = (function() {
             }
         });
 
+        attachHandlers();
+        console.log('[AircraftLayer] Initialized with circle fallback');
+    }
+
+    function attachHandlers() {
+        var map = MeshMap.getMap();
+
         // Click handler
         map.on('click', 'aircraft-layer', function(e) {
             if (e.features && e.features.length) {
@@ -69,8 +133,6 @@ window.AircraftLayer = (function() {
 
         // Socket events
         MeshSocket.on('adsb_aircraft', handleAircraft);
-
-        console.log('[AircraftLayer] Initialized');
     }
 
     function handleAircraft(data) {

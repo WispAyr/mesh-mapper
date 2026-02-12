@@ -11,7 +11,64 @@ window.VesselLayer = (function() {
     function init() {
         var map = MeshMap.getMap();
 
-        // Vessel points layer
+        // Load vessel icon from SVG, then add layer
+        var svgString = MeshIcons.vessel('#4a90d9', 0);
+        var img = new Image(24, 24);
+        img.onload = function() {
+            if (!map.hasImage('vessel-icon')) {
+                map.addImage('vessel-icon', img, { sdf: false });
+            }
+            addLayers();
+        };
+        img.onerror = function() {
+            console.warn('[VesselLayer] Failed to load vessel icon, falling back to circle');
+            addLayersFallback();
+        };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+    }
+
+    function addLayers() {
+        var map = MeshMap.getMap();
+
+        // Vessel symbol layer with icon
+        map.addLayer({
+            id: 'vessel-layer',
+            type: 'symbol',
+            source: 'vessels',
+            layout: {
+                'icon-image': 'vessel-icon',
+                'icon-size': [
+                    'interpolate', ['linear'], ['zoom'],
+                    4, 0.5,
+                    8, 0.8,
+                    12, 1.2
+                ],
+                'icon-rotate': ['coalesce', ['get', 'heading'], ['get', 'course'], 0],
+                'icon-rotation-alignment': 'map',
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+                'text-field': ['step', ['zoom'], '', 9, ['get', 'name']],
+                'text-font': ['Open Sans Regular'],
+                'text-size': 10,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-optional': true
+            },
+            paint: {
+                'text-color': '#4a90d9',
+                'text-halo-color': '#0a0e1a',
+                'text-halo-width': 1
+            }
+        });
+
+        attachHandlers();
+        console.log('[VesselLayer] Initialized with icon');
+    }
+
+    function addLayersFallback() {
+        var map = MeshMap.getMap();
+
+        // Fallback: circle layer if icon fails to load
         map.addLayer({
             id: 'vessel-layer',
             type: 'circle',
@@ -51,6 +108,13 @@ window.VesselLayer = (function() {
             }
         });
 
+        attachHandlers();
+        console.log('[VesselLayer] Initialized with circle fallback');
+    }
+
+    function attachHandlers() {
+        var map = MeshMap.getMap();
+
         // Click handler
         map.on('click', 'vessel-layer', function(e) {
             if (e.features && e.features.length) {
@@ -69,8 +133,6 @@ window.VesselLayer = (function() {
         // Socket events
         MeshSocket.on('ais_vessels', handleVessels);
         MeshSocket.on('ais_vessel_update', handleVesselUpdate);
-
-        console.log('[VesselLayer] Initialized');
     }
 
     function handleVessels(data) {

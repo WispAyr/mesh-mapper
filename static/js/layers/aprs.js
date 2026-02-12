@@ -11,6 +11,62 @@ window.AprsLayer = (function() {
     function init() {
         var map = MeshMap.getMap();
 
+        // Load APRS icon from SVG, then add layer
+        var svgString = MeshIcons.aprs('#44ff44');
+        var img = new Image(20, 20);
+        img.onload = function() {
+            if (!map.hasImage('aprs-icon')) {
+                map.addImage('aprs-icon', img, { sdf: false });
+            }
+            addLayers();
+        };
+        img.onerror = function() {
+            console.warn('[AprsLayer] Failed to load APRS icon, falling back to circle');
+            addLayersFallback();
+        };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+    }
+
+    function addLayers() {
+        var map = MeshMap.getMap();
+
+        // APRS symbol layer with icon
+        map.addLayer({
+            id: 'aprs-layer',
+            type: 'symbol',
+            source: 'aprs',
+            layout: {
+                'icon-image': 'aprs-icon',
+                'icon-size': [
+                    'interpolate', ['linear'], ['zoom'],
+                    4, 0.6,
+                    8, 0.9,
+                    12, 1.2
+                ],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+                'text-field': ['step', ['zoom'], '', 8, ['get', 'callsign']],
+                'text-font': ['Open Sans Regular'],
+                'text-size': 10,
+                'text-offset': [0, 1.5],
+                'text-anchor': 'top',
+                'text-optional': true
+            },
+            paint: {
+                'text-color': '#44ff44',
+                'text-halo-color': '#0a0e1a',
+                'text-halo-width': 1
+            }
+        });
+
+        attachHandlers();
+        console.log('[AprsLayer] Initialized with icon');
+    }
+
+    function addLayersFallback() {
+        var map = MeshMap.getMap();
+
+        // Fallback: circle layer
         map.addLayer({
             id: 'aprs-layer',
             type: 'circle',
@@ -22,10 +78,10 @@ window.AprsLayer = (function() {
                     8, 5,
                     12, 7
                 ],
-                'circle-color': '#ffd700',
+                'circle-color': '#44ff44',
                 'circle-opacity': 0.85,
                 'circle-stroke-width': 1,
-                'circle-stroke-color': '#997700'
+                'circle-stroke-color': '#228822'
             }
         });
 
@@ -43,11 +99,18 @@ window.AprsLayer = (function() {
                 'text-optional': true
             },
             paint: {
-                'text-color': '#ffd700',
+                'text-color': '#44ff44',
                 'text-halo-color': '#0a0e1a',
                 'text-halo-width': 1
             }
         });
+
+        attachHandlers();
+        console.log('[AprsLayer] Initialized with circle fallback');
+    }
+
+    function attachHandlers() {
+        var map = MeshMap.getMap();
 
         map.on('click', 'aprs-layer', function(e) {
             if (e.features && e.features.length) {
@@ -63,8 +126,6 @@ window.AprsLayer = (function() {
         });
 
         MeshSocket.on('aprs_stations', handleAprs);
-
-        console.log('[AprsLayer] Initialized');
     }
 
     function handleAprs(data) {

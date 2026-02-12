@@ -38,8 +38,9 @@ window.MeshIcons = (function() {
     function aircraft(color, heading) {
         color = color || '#00d4ff';
         heading = heading || 0;
-        return '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" ' +
-            'style="transform:rotate(' + heading + 'deg)">' +
+        // When heading is 0 or not provided, return unrotated SVG (for MapLibre icon-rotate)
+        var rotateAttr = heading ? ' style="transform:rotate(' + heading + 'deg)"' : '';
+        return '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"' + rotateAttr + '>' +
             '<path d="M12 2L8 10H3l2 3-2 3h5l4 6 4-6h5l-2-3 2-3h-5L12 2z" ' +
             'fill="' + color + '" opacity="0.8" stroke="' + color + '" stroke-width="0.5"/>' +
             '</svg>';
@@ -48,8 +49,9 @@ window.MeshIcons = (function() {
     function vessel(color, heading) {
         color = color || '#4a90d9';
         heading = heading || 0;
-        return '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" ' +
-            'style="transform:rotate(' + heading + 'deg)">' +
+        // When heading is 0 or not provided, return unrotated SVG (for MapLibre icon-rotate)
+        var rotateAttr = heading ? ' style="transform:rotate(' + heading + 'deg)"' : '';
+        return '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"' + rotateAttr + '>' +
             '<path d="M12 3L7 12H4l1 4c0 0 2 3 7 3s7-3 7-3l1-4h-3L12 3z" ' +
             'fill="' + color + '" opacity="0.7" stroke="' + color + '" stroke-width="0.5"/>' +
             '</svg>';
