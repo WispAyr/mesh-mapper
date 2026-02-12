@@ -109,10 +109,10 @@
             SettingsPanel.updateLastUpdate();
         });
 
-        // Load zones
+        // Load zones via REST and feed directly to airspace layer
         MeshAPI.getZones().then(function(data) {
             if (data && data.zones) {
-                AirspaceLayer.getData(); // Trigger through socket handler simulation
+                AirspaceLayer.handleZones(data);
             }
         });
     }

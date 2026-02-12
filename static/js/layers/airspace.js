@@ -111,6 +111,17 @@ window.AirspaceLayer = (function() {
         DroneLayer.addAlert(msg, 'danger');
     }
 
+    // Convert [lat, lng] to [lng, lat] for GeoJSON/MapLibre
+    function flipCoords(coords) {
+        if (!Array.isArray(coords)) return coords;
+        // If it's a coordinate pair [lat, lng]
+        if (coords.length === 2 && typeof coords[0] === 'number') {
+            return [coords[1], coords[0]];
+        }
+        // Otherwise recurse into nested arrays
+        return coords.map(flipCoords);
+    }
+
     function updateMap() {
         var fillFeatures = [];
         var outlineFeatures = [];
@@ -121,16 +132,27 @@ window.AirspaceLayer = (function() {
             if (zone.geometry) {
                 geometry = zone.geometry;
             } else if (zone.coordinates) {
-                // Attempt to build polygon from coordinates array
+                // Backend stores coords as [lat, lng] (Leaflet format)
+                // MapLibre/GeoJSON needs [lng, lat] — flip them
                 if (Array.isArray(zone.coordinates) && zone.coordinates.length > 0) {
-                    if (Array.isArray(zone.coordinates[0]) && Array.isArray(zone.coordinates[0][0])) {
-                        geometry = { type: 'Polygon', coordinates: zone.coordinates };
-                    } else {
-                        geometry = { type: 'Polygon', coordinates: [zone.coordinates] };
+                    var flipped = zone.coordinates.map(function(c) {
+                        if (Array.isArray(c) && c.length === 2 && typeof c[0] === 'number') {
+                            return [c[1], c[0]]; // [lat,lng] → [lng,lat]
+                        }
+                        return c;
+                    });
+                    // Close the ring if not already closed
+                    if (flipped.length > 2) {
+                        var first = flipped[0];
+                        var last = flipped[flipped.length - 1];
+                        if (first[0] !== last[0] || first[1] !== last[1]) {
+                            flipped.push(flipped[0]);
+                        }
                     }
+                    geometry = { type: 'Polygon', coordinates: [flipped] };
                 }
             } else if (zone.polygon) {
-                geometry = { type: 'Polygon', coordinates: [zone.polygon] };
+                geometry = { type: 'Polygon', coordinates: [flipCoords(zone.polygon)] };
             }
 
             if (!geometry) return;
@@ -211,6 +233,7 @@ window.AirspaceLayer = (function() {
 
     return {
         init: init,
+        handleZones: handleZones,
         setVisible: setVisible,
         getData: getData,
         updateCount: updateCount

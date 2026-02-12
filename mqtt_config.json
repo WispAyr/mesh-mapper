@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "broker": "localhost",
+  "port": 1883,
+  "topic_prefix": "mesh-mapper",
+  "publish": {
+    "drones": true,
+    "aircraft": true,
+    "vessels": true,
+    "aprs": true,
+    "weather": true,
+    "lightning": true,
+    "system": true
+  },
+  "bulk_interval": 30
+}

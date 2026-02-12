@@ -101,6 +101,183 @@ METOFFICE_UPDATE_INTERVAL = 1800  # Update weather warnings every 30 minutes
 METOFFICE_RSS_URL = 'https://www.metoffice.gov.uk/public/data/PWSCache/WarningsRSS/Region/UK'
 METOFFICE_GEOJSON_URL = 'https://www.metoffice.gov.uk/public/data/NSWWS/WarningsJSON'  # Met Office NSWWS API (GeoJSON format)
 
+import paho.mqtt.client as mqtt
+MQTT_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mqtt_config.json')
+
+def load_mqtt_config():
+    """Loads MQTT configuration from mqtt_config.json."""
+    if not os.path.exists(MQTT_CONFIG_PATH):
+        logger.warning(f"MQTT config file not found at {MQTT_CONFIG_PATH}. Using default disabled config.")
+        return {
+            "enabled": False,
+            "broker": "localhost",
+            "port": 1883,
+            "topic_prefix": "mesh-mapper",
+            "publish": {
+                "drones": True, "aircraft": True, "vessels": True, "aprs": True,
+                "weather": True, "lightning": True, "system": True
+            },
+            "bulk_interval": 30
+        }
+    with open(MQTT_CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    logger.info(f"Loaded MQTT config: {config}")
+    return config
+
+class MQTTPublisher:
+    """Manages MQTT connection and publishing."""
+    def __init__(self):
+        self.config = load_mqtt_config()
+        self.client = None
+        self.is_connected = False
+        self.publish_counts = {k: 0 for k in self.config.get("publish", {}).keys()}
+        self.last_connect_attempt = 0
+        self.reconnect_interval = 5 # seconds
+
+        if self.config["enabled"]:
+            self._setup_client()
+        else:
+            logger.info("MQTT is disabled in configuration.")
+
+    def _setup_client(self):
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self.client.on_connect = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
+        self.client.reconnect_delay_set(min_delay=1, max_delay=120)
+
+    def _on_connect(self, client, userdata, flags, rc, properties=None):
+        if rc == 0:
+            self.is_connected = True
+            logger.info("MQTT Publisher Connected to broker!")
+        else:
+            self.is_connected = False
+            logger.error(f"MQTT Publisher Failed to connect, return code {rc}")
+
+    def _on_disconnect(self, client, userdata, rc, properties=None):
+        self.is_connected = False
+        if rc != 0:
+            logger.warning(f"MQTT Publisher disconnected unexpectedly. Attempting reconnect (RC: {rc})...")
+            # The client's loop_start/loop_forever handles re-connection internally
+
+    def connect_threaded(self):
+        if not self.config["enabled"]:
+            return
+
+        def _connect_loop():
+            while not SHUTDOWN_EVENT.is_set():
+                if not self.is_connected:
+                    current_time = time.time()
+                    if (current_time - self.last_connect_attempt) > self.reconnect_interval:
+                        self.last_connect_attempt = current_time
+                        logger.info(f"Attempting to connect to MQTT broker at {self.config['broker']}:{self.config['port']}")
+                        try:
+                            self.client.connect(self.config["broker"], self.config["port"], 60)
+                            self.client.loop_forever(retry_first_connection=True) # Blocks, but handles reconnects
+                        except Exception as e:
+                            logger.error(f"MQTT connection attempt failed: {e}")
+                            time.sleep(self.reconnect_interval)
+                else:
+                    time.sleep(1) # Check connection status periodically
+
+        # Start the MQTT client network loop in a separate thread
+        if self.client and not self.client._thread_is_started:
+             # Ensure a clean client for loop_start
+            self.client.loop_start() 
+            logger.info("MQTT client loop started in background thread.")
+            
+        # Also start a separate thread for managing the connection attempts in case loop_start fails or is insufficient
+        connect_thread = threading.Thread(target=_connect_loop, daemon=True)
+        connect_thread.start()
+        logger.info("MQTT connection management thread started.")
+
+    def disconnect(self):
+        if self.client:
+            logger.info("Disconnecting MQTT publisher...")
+            self.client.loop_stop()
+            self.client.disconnect()
+            self.is_connected = False
+            logger.info("MQTT publisher disconnected.")
+
+    def update_config(self, new_config):
+        self.config.update(new_config)
+        with open(MQTT_CONFIG_PATH, 'w') as f:
+            json.dump(self.config, f, indent=2)
+        logger.info(f"MQTT config updated and saved: {self.config}")
+        
+        # Re-initialize client if enabled status changes or broker/port changes
+        if self.config["enabled"] and (not self.client or \
+            self.client._host != self.config["broker"] or \
+            self.client._port != self.config["port"]):
+            self.disconnect()
+            self._setup_client()
+            self.connect_threaded()
+        elif not self.config["enabled"] and self.client:
+            self.disconnect()
+
+    def publish_message(self, topic_suffix, payload, data_type_key):
+        if not self.config["enabled"] or not self.is_connected:
+            return
+
+        if not self.config["publish"].get(data_type_key, False):
+            return
+
+        full_topic = f"{self.config['topic_prefix']}/{topic_suffix}"
+        try:
+            payload_str = json.dumps(payload)
+            self.client.publish(full_topic, payload_str)
+            self.publish_counts[data_type_key] += 1
+            logger.debug(f"Published to MQTT topic: {full_topic} - Payload: {payload_str[:100]}...")
+        except Exception as e:
+            logger.error(f"Error publishing to MQTT topic {full_topic}: {e}")
+
+    def publish_drone(self, mac, state_data, position_data=None, alert_data=None):
+        if state_data:
+            self.publish_message(f"drones/{mac}/state", state_data, "drones")
+        if position_data:
+            self.publish_message(f"drones/{mac}/position", position_data, "drones")
+        if alert_data:
+            self.publish_message(f"drones/{mac}/alert", alert_data, "drones")
+
+    def publish_aircraft_bulk(self, aircraft_list):
+        self.publish_message("aircraft/bulk", {"aircraft": aircraft_list, "timestamp": time.time()}, "aircraft")
+
+    def publish_aircraft_state(self, hex_id, state_data):
+        self.publish_message(f"aircraft/{hex_id}/state", state_data, "aircraft")
+
+    def publish_vessel(self, mmsi, state_data):
+        self.publish_message(f"vessels/{mmsi}/state", state_data, "vessels")
+    
+    def publish_vessels_bulk(self, vessel_list):
+        self.publish_message("vessels/bulk", {"vessels": vessel_list, "timestamp": time.time()}, "vessels")
+
+    def publish_aprs(self, callsign, state_data):
+        self.publish_message(f"aprs/{callsign}/state", state_data, "aprs")
+
+    def publish_aprs_bulk(self, aprs_list):
+        self.publish_message("aprs/bulk", {"aprs_stations": aprs_list, "timestamp": time.time()}, "aprs")
+
+    def publish_weather_current(self, weather_data):
+        self.publish_message("weather/current", weather_data, "weather")
+
+    def publish_weather_warnings(self, warnings_data):
+        self.publish_message("weather/warnings", warnings_data, "weather")
+
+    def publish_lightning_strike(self, strike_data):
+        self.publish_message("lightning/strike", strike_data, "lightning")
+
+    def publish_airspace_zones(self, zones_data):
+        # Airspace zones are less frequent, so a bulk update is suitable
+        self.publish_message("airspace/zones", {"zones": zones_data, "timestamp": time.time()}, "airspace")
+
+    def publish_system_status(self, status_data):
+        self.publish_message("system/status", status_data, "system")
+
+    def publish_system_alert(self, alert_data):
+        self.publish_message("system/alert", alert_data, "system")
+
+# Global MQTT Publisher instance
+mqtt_publisher = MQTTPublisher()
+
 # ----------------------
 # Thread Locks for shared global dicts
 # ----------------------
@@ -4717,6 +4894,42 @@ def update_detection(detection):
         return
     prev = tracked_pairs.get(mac)
 
+    # MQTT: Publish drone state and position
+    # Prepare state data for full state topic
+    state_data = {
+        "timestamp": time.time(),
+        "mac": mac,
+        "alias": ALIASES.get(mac, ""),
+        "rssi": detection.get("rssi", 0),
+        "basic_id": detection.get("basic_id", ""),
+        "faa_data": detection.get("faa_data", {}), # This will be updated later if needed
+        "status": detection.get("status", "active")
+    }
+    # Add all other relevant fields from detection to state_data
+    for key in ["drone_lat", "drone_long", "drone_altitude", "pilot_lat", "pilot_long",
+                "vertical_speed", "horizontal_speed", "heading", "last_seen", "source", "zone_alerts", "no_gps"]:
+        if key in detection:
+            state_data[key] = detection[key]
+
+    # Prepare position data for high-frequency position topic
+    position_data = {
+        "timestamp": time.time(),
+        "lat": detection.get("drone_lat", 0),
+        "lon": detection.get("drone_long", 0),
+        "alt": detection.get("drone_altitude", 0),
+        "heading": detection.get("heading", 0),
+        "speed_h": detection.get("horizontal_speed", 0),
+        "speed_v": detection.get("vertical_speed", 0)
+    }
+
+    # Only publish position if valid GPS data is present
+    if (position_data["lat"] != 0 or position_data["lon"] != 0) and state_data.get("no_gps", False) is False:
+        mqtt_publisher.publish_drone(mac, state_data, position_data)
+    else: # For no-GPS detections, still publish state but without position topic
+        mqtt_publisher.publish_drone(mac, state_data)
+
+
+
     # Retrieve new drone coordinates from the detection
     new_drone_lat = detection.get("drone_lat", 0)
     new_drone_long = detection.get("drone_long", 0)
@@ -4903,6 +5116,18 @@ def update_detection(detection):
     should_trigger, is_new = should_trigger_webhook_earliest(detection, mac)
     if should_trigger:
         trigger_backend_webhook_earliest(detection, is_new)
+        
+        # MQTT: Publish drone alert
+        alert_data = {
+            "timestamp": time.time(),
+            "mac": mac,
+            "alias": ALIASES.get(mac, ""),
+            "alert_type": "new_detection" if is_new else "zone_event", # Differentiate new vs zone
+            "drone_lat": detection.get("drone_lat", 0),
+            "drone_long": detection.get("drone_long", 0),
+            "zone_alerts": detection.get("zone_alerts", [])
+        }
+        mqtt_publisher.publish_drone(mac, alert_data=alert_data)
     
     # Broadcast this detection to all connected clients and peer servers
     try:
