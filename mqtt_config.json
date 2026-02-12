@@ -10,6 +10,7 @@
     "aprs": true,
     "weather": true,
     "lightning": true,
+    "airspace": true,
     "system": true
   },
   "bulk_interval": 30
