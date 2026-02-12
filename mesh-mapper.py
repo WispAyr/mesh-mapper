@@ -32,6 +32,14 @@ import ssl
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ----------------------
+# Alert Engine Import (lazy init after app/socketio created)
+# ----------------------
+# These will be initialised in main() after Flask app is ready
+event_bus = None
+alert_engine = None
+alert_storage = None
+
+# ----------------------
 # Enhanced Logging Setup
 # ----------------------
 logging.basicConfig(
@@ -107,6 +115,9 @@ BLE_DEVICES = {}  # Store current BLE device data: {mac: device_data}
 BLE_DEVICES_LOCK = threading.Lock()
 BLE_RADAR = None  # BLERadar instance
 BLE_CONFIG = {}  # BLE configuration from ble_config.json
+
+# Bluetooth Toolkit (research tools via hci0)
+BT_TOOLKIT = None  # BTToolkit instance — initialised after socketio is ready
 
 # GPS configuration
 GPS_ENABLED = True
@@ -1035,6 +1046,27 @@ def process_ais_message(ais_data):
         except Exception as e:
             logger.debug(f"Error emitting AIS vessel update: {e}")
 
+        # Alert engine: publish vessel event
+        if event_bus:
+            try:
+                event_bus.publish({
+                    "event_type": "vessel.updated",
+                    "source": "ais",
+                    "timestamp": time.time(),
+                    "object_id": mmsi,
+                    "object_type": "vessel",
+                    "location": {"lat": lat, "lon": lon},
+                    "data": {
+                        "mmsi": mmsi,
+                        "name": vessel.get("name", ""),
+                        "speed": speed, "speed_kts": speed,
+                        "course": course, "heading": heading,
+                        "vessel_type": vessel.get("vessel_type", ""),
+                    },
+                })
+            except Exception:
+                pass
+
     except Exception as e:
         logger.error(f"Error processing AIS message: {e}")
 
@@ -1937,6 +1969,40 @@ def update_adsb_data():
         except Exception as e:
             logger.debug(f"Error emitting ADSB aircraft: {e}")
 
+        # Alert engine: publish aircraft events
+        if event_bus:
+            try:
+                for ac in aircraft_list:
+                    hex_code = ac.get("hex")
+                    if not hex_code:
+                        continue
+                    lat = ac.get("lat", 0)
+                    lon = ac.get("lon", 0)
+                    if not lat or not lon:
+                        continue
+                    event_bus.publish({
+                        "event_type": "aircraft.updated",
+                        "source": "adsb",
+                        "timestamp": time.time(),
+                        "object_id": hex_code,
+                        "object_type": "aircraft",
+                        "location": {
+                            "lat": lat, "lon": lon,
+                            "alt": ac.get("altitude_ft", ac.get("altitude_baro", 0)),
+                        },
+                        "data": {
+                            "callsign": ac.get("callsign", ""),
+                            "squawk": ac.get("squawk", ""),
+                            "speed_kts": ac.get("speed_kts", 0),
+                            "track": ac.get("track", 0),
+                            "vertical_rate": ac.get("vertical_rate", 0),
+                            "category": ac.get("category", ""),
+                            "altitude_ft": ac.get("altitude_ft", ac.get("altitude_baro", 0)),
+                        },
+                    })
+            except Exception as e:
+                logger.debug(f"Alert engine ADSB event error: {e}")
+
     except Exception as e:
         logger.error(f"Error updating ADSB data: {e}")
 
@@ -2488,6 +2554,24 @@ def process_lightning_strike(strike_data):
         update_detection(detection)
 
         logger.info(f"Lightning strike detected: {lat:.4f}, {lon:.4f}, {alt:.0f}m, {current:.1f}kA")
+
+        # Alert engine: publish lightning event
+        if event_bus:
+            try:
+                event_bus.publish({
+                    "event_type": "lightning.strike",
+                    "source": "blitzortung",
+                    "timestamp": time.time(),
+                    "object_id": strike_id,
+                    "object_type": "lightning",
+                    "location": {"lat": lat, "lon": lon, "alt": alt},
+                    "data": {
+                        "current": current, "polarity": polarity,
+                        "strike_type": strike_type, "altitude_m": alt,
+                    },
+                })
+            except Exception:
+                pass
 
         # Emit lightning alert event for audible warning
         try:
@@ -3772,6 +3856,27 @@ def check_zone_events(detection):
                 "detection": detection
             })
 
+            # Alert engine: zone entry event
+            if event_bus:
+                try:
+                    event_bus.publish({
+                        "event_type": "drone.zone_entry",
+                        "source": "zone_checker",
+                        "timestamp": time.time(),
+                        "object_id": mac,
+                        "object_type": "drone",
+                        "location": {"lat": drone_lat, "lon": drone_long, "alt": detection.get("drone_altitude", 0)},
+                        "data": {
+                            "zone_id": zone_id,
+                            "zone_name": zone.get("name", "Unknown"),
+                            "zone_type": zone.get("type", "warning"),
+                            "mac": mac, "rssi": detection.get("rssi", 0),
+                            "alias": ALIASES.get(mac, ""),
+                        },
+                    })
+                except Exception:
+                    pass
+
     # Check for zone exits
     exited_zones = previous_zones - current_zones
     for zone_id in exited_zones:
@@ -3799,6 +3904,26 @@ def check_zone_events(detection):
                 "zone": zone,
                 "detection": detection
             })
+
+            # Alert engine: zone exit event
+            if event_bus:
+                try:
+                    event_bus.publish({
+                        "event_type": "drone.zone_exit",
+                        "source": "zone_checker",
+                        "timestamp": time.time(),
+                        "object_id": mac,
+                        "object_type": "drone",
+                        "location": {"lat": drone_lat, "lon": drone_long, "alt": detection.get("drone_altitude", 0)},
+                        "data": {
+                            "zone_id": zone_id,
+                            "zone_name": zone.get("name", "Unknown"),
+                            "zone_type": zone.get("type", "warning"),
+                            "mac": mac, "alias": ALIASES.get(mac, ""),
+                        },
+                    })
+                except Exception:
+                    pass
 
     # Update current zones for this drone
     drone_zones[mac] = current_zones
@@ -5286,6 +5411,35 @@ def update_detection(detection):
 
     # Check for zone entry/exit events
     check_zone_events(detection)
+
+    # Alert engine: publish drone event
+    if event_bus:
+        try:
+            is_new = prev is None
+            event_bus.publish({
+                "event_type": "drone.detected" if is_new else "drone.updated",
+                "source": "serial",
+                "timestamp": time.time(),
+                "object_id": mac,
+                "object_type": "drone",
+                "location": {
+                    "lat": new_drone_lat,
+                    "lon": new_drone_long,
+                    "alt": detection.get("drone_altitude", 0),
+                },
+                "data": {
+                    "mac": mac,
+                    "rssi": detection.get("rssi", 0),
+                    "basic_id": detection.get("basic_id", ""),
+                    "pilot_lat": detection.get("pilot_lat", 0),
+                    "pilot_lon": detection.get("pilot_long", 0),
+                    "is_new": is_new,
+                    "alias": ALIASES.get(mac, ""),
+                    "is_whitelisted": mac in ALIASES,
+                },
+            })
+        except Exception as e:
+            logger.debug(f"Alert engine event publish error: {e}")
 
     # Log all detections as incidents
     if valid_drone:
@@ -13183,6 +13337,39 @@ def main():
     # Load webhook URL (now that all functions are defined)
     load_webhook_url()
 
+    # ---- Initialise Alert Engine ----
+    global event_bus, alert_engine, alert_storage
+    try:
+        from alert_engine import EventBus, RuleEngine, FlowStorage
+        from alert_actions import (UIAlertAction, WebhookAction, TelegramAction,
+                                   MQTTAction, LogAction, SoundAction)
+
+        event_bus = EventBus()
+        alert_storage = FlowStorage(DB_FILE)
+        alert_engine = RuleEngine(
+            storage=alert_storage,
+            event_bus=event_bus,
+            socketio=socketio,
+            mqtt_publisher=mqtt_publisher,
+            zones_getter=lambda: ZONES,
+        )
+
+        # Register action executors
+        alert_engine.register_action("ui_alert", UIAlertAction(socketio=socketio))
+        alert_engine.register_action("webhook", WebhookAction(default_url=WEBHOOK_URL))
+        alert_engine.register_action("telegram_push", TelegramAction())
+        alert_engine.register_action("mqtt_publish", MQTTAction(mqtt_publisher=mqtt_publisher))
+        alert_engine.register_action("db_log", LogAction(storage=alert_storage))
+        alert_engine.register_action("audio_announce", SoundAction())
+
+        alert_engine.start()
+        logger.info("Alert engine initialised and started")
+    except Exception as e:
+        logger.error(f"Failed to initialise alert engine: {e}")
+        event_bus = None
+        alert_engine = None
+        alert_storage = None
+
     # Clean session state to prevent lingering from prior sessions
     global backend_seen_drones, backend_previous_active, backend_alerted_no_gps
     global tracked_pairs, detection_history
@@ -13263,6 +13450,9 @@ def main():
 
     # Start BLE Radar scanner
     start_ble_radar()
+
+    # Start Bluetooth research toolkit (uses hci0, not Sniffle)
+    start_bt_toolkit()
 
     # Start MMIP (Mesh Mapper Interchange Protocol)
     start_mmip()
@@ -13614,6 +13804,263 @@ def api_get_webhook_url():
 @app.route('/api/webhook_url', methods=['GET'])
 def api_webhook_url():
     return jsonify({"webhook_url": WEBHOOK_URL or ""})
+
+# ----------------------
+# Alert Engine REST API
+# ----------------------
+
+@app.route('/api/alerts/flows', methods=['GET'])
+def api_alert_flows_list():
+    """List all alert flows."""
+    if not alert_storage:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        enabled = request.args.get('enabled')
+        flows = alert_storage.list_flows(enabled_only=(enabled == 'true'))
+        return jsonify({"flows": flows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/flows', methods=['POST'])
+def api_alert_flow_create():
+    """Create a new alert flow."""
+    if not alert_storage or not alert_engine:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing JSON body"}), 400
+
+        # If template_id is provided, create from template
+        template_id = data.get("template_id")
+        if template_id:
+            from alert_templates import create_flow_from_template
+            flow_def = create_flow_from_template(
+                template_id,
+                name=data.get("name"),
+                parameters=data.get("parameters", {})
+            )
+            if not flow_def:
+                return jsonify({"error": f"Template '{template_id}' not found"}), 404
+        else:
+            flow_def = data
+
+        flow = alert_storage.create_flow(flow_def)
+        alert_engine.reload_flows()
+        return jsonify(flow), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/flows/<flow_id>', methods=['GET'])
+def api_alert_flow_get(flow_id):
+    """Get a specific flow."""
+    if not alert_storage:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        flow = alert_storage.get_flow(flow_id)
+        if not flow:
+            return jsonify({"error": "Flow not found"}), 404
+        return jsonify(flow)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/flows/<flow_id>', methods=['PUT'])
+def api_alert_flow_update(flow_id):
+    """Update an existing flow."""
+    if not alert_storage or not alert_engine:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Missing JSON body"}), 400
+        flow = alert_storage.update_flow(flow_id, data)
+        if not flow:
+            return jsonify({"error": "Flow not found"}), 404
+        alert_engine.reload_flows()
+        return jsonify(flow)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/flows/<flow_id>', methods=['DELETE'])
+def api_alert_flow_delete(flow_id):
+    """Delete a flow."""
+    if not alert_storage or not alert_engine:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        deleted = alert_storage.delete_flow(flow_id)
+        if not deleted:
+            return jsonify({"error": "Flow not found"}), 404
+        alert_engine.reload_flows()
+        return jsonify({"status": "deleted", "id": flow_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/flows/<flow_id>/enable', methods=['POST'])
+def api_alert_flow_enable(flow_id):
+    """Enable a flow."""
+    if not alert_storage or not alert_engine:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        flow = alert_storage.update_flow(flow_id, {"enabled": True})
+        if not flow:
+            return jsonify({"error": "Flow not found"}), 404
+        alert_engine.reload_flows()
+        return jsonify(flow)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/flows/<flow_id>/disable', methods=['POST'])
+def api_alert_flow_disable(flow_id):
+    """Disable a flow."""
+    if not alert_storage or not alert_engine:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        flow = alert_storage.update_flow(flow_id, {"enabled": False})
+        if not flow:
+            return jsonify({"error": "Flow not found"}), 404
+        alert_engine.reload_flows()
+        return jsonify(flow)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/history', methods=['GET'])
+def api_alert_history():
+    """Query alert history with optional filters."""
+    if not alert_storage:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        filters = {}
+        for key in ['severity', 'object_type', 'object_id', 'flow_id', 'since', 'until']:
+            val = request.args.get(key)
+            if val:
+                filters[key] = val
+        acked = request.args.get('acknowledged')
+        if acked is not None:
+            filters['acknowledged'] = acked.lower() in ('true', '1')
+        limit = min(int(request.args.get('limit', 100)), 1000)
+        offset = int(request.args.get('offset', 0))
+
+        alerts = alert_storage.query_history(filters=filters, limit=limit, offset=offset)
+        return jsonify({"alerts": alerts})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/history/<int:alert_id>/acknowledge', methods=['POST'])
+def api_alert_acknowledge(alert_id):
+    """Acknowledge a specific alert."""
+    if not alert_storage:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        result = alert_storage.acknowledge_alert(alert_id)
+        if result:
+            socketio.emit('alert_acknowledged', {'alert_id': alert_id, 'timestamp': time.time()})
+        return jsonify({"acknowledged": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/history/acknowledge-all', methods=['POST'])
+def api_alert_acknowledge_all():
+    """Acknowledge all unacknowledged alerts."""
+    if not alert_storage:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        severity = request.args.get('severity')
+        count = alert_storage.acknowledge_all(severity=severity)
+        return jsonify({"acknowledged_count": count})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/stats', methods=['GET'])
+def api_alert_stats():
+    """Get alert statistics."""
+    if not alert_storage:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        return jsonify(alert_storage.get_stats())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/templates', methods=['GET'])
+def api_alert_templates():
+    """List all available alert templates."""
+    try:
+        from alert_templates import get_all_templates
+        templates = get_all_templates()
+        # Return templates without full flow_json for listing
+        summary = []
+        for t in templates:
+            summary.append({
+                "id": t["id"],
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "category": t.get("category", ""),
+                "severity": t.get("severity", "warning"),
+                "icon": t.get("icon", ""),
+                "parameters": t.get("parameters", {}),
+            })
+        return jsonify({"templates": summary})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/templates/<template_id>', methods=['GET'])
+def api_alert_template_detail(template_id):
+    """Get full template details including flow definition."""
+    try:
+        from alert_templates import get_template
+        template = get_template(template_id)
+        if not template:
+            return jsonify({"error": "Template not found"}), 404
+        return jsonify(template)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/test', methods=['POST'])
+def api_alert_test():
+    """Fire a test event through the alert engine."""
+    if not event_bus:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        data = request.get_json() or {}
+        test_event = {
+            "event_type": data.get("event_type", "drone.detected"),
+            "source": "test",
+            "timestamp": time.time(),
+            "object_id": data.get("object_id", "TEST:00:00:00:00:01"),
+            "object_type": data.get("object_type", "drone"),
+            "location": data.get("location", {"lat": 55.86, "lon": -4.25, "alt": 100}),
+            "data": data.get("data", {
+                "rssi": -50,
+                "basic_id": "TEST_DRONE",
+                "is_new": True,
+                "alias": "Test Drone",
+            }),
+        }
+        event_bus.publish(test_event)
+        return jsonify({"status": "ok", "event": test_event})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/engine/status', methods=['GET'])
+def api_alert_engine_status():
+    """Get alert engine status and statistics."""
+    if not alert_engine:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        return jsonify(alert_engine.stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/engine/reload', methods=['POST'])
+def api_alert_engine_reload():
+    """Reload all flows from database."""
+    if not alert_engine:
+        return jsonify({"error": "Alert engine not initialised"}), 503
+    try:
+        alert_engine.reload_flows()
+        return jsonify({"status": "ok", "flows": len(alert_engine._flows)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/lightning_detection', methods=['GET'])
 def get_lightning_detection():
@@ -14848,6 +15295,258 @@ def start_mmip():
             mqtt_publisher.subscribe_mmip_events()
         t = threading.Thread(target=_delayed_subscribe, daemon=True, name='MMIPSubscribe')
         t.start()
+
+
+# ---- Bluetooth Toolkit init + API routes ----
+
+def start_bt_toolkit():
+    """Initialise the BT research toolkit (uses hci0, not Sniffle)."""
+    global BT_TOOLKIT
+    try:
+        from bt_toolkit import BTToolkit
+        BT_TOOLKIT = BTToolkit(socketio=socketio)
+        logger.info("BT Toolkit initialised (hci0)")
+    except ImportError as e:
+        logger.warning(f"bt_toolkit module not available: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialise BT Toolkit: {e}")
+
+
+@app.route('/api/bt/adapters', methods=['GET'])
+def api_bt_adapters():
+    """List Bluetooth adapters + toolkit capabilities."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    adapters = BT_TOOLKIT.adapter_manager.list_adapters()
+    return jsonify({"status": "ok", "adapters": adapters, "capabilities": BT_TOOLKIT.get_capabilities()})
+
+
+@app.route('/api/bt/adapters/<adapter_id>/config', methods=['POST'])
+def api_bt_adapter_config(adapter_id):
+    """Update adapter settings (power, discoverable, etc.)."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    data = request.get_json() or {}
+    results = BT_TOOLKIT.adapter_manager.configure_adapter(adapter_id, data)
+    return jsonify({"status": "ok", "results": results})
+
+
+@app.route('/api/bt/scan/start', methods=['GET'])
+def api_bt_scan_start():
+    """Start BLE scan. Params: duration (float), active (bool)."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    duration = float(request.args.get('duration', 30))
+    active = request.args.get('active', 'true').lower() != 'false'
+    ok = BT_TOOLKIT.ble_scanner.start_scan(duration=duration, active=active)
+    return jsonify({"status": "ok" if ok else "error",
+                    "message": "Scan started" if ok else "Scan failed or already running"})
+
+
+@app.route('/api/bt/scan/stop', methods=['GET'])
+def api_bt_scan_stop():
+    """Stop current BLE scan."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    BT_TOOLKIT.ble_scanner.stop_scan()
+    return jsonify({"status": "ok"})
+
+
+@app.route('/api/bt/scan/devices', methods=['GET'])
+def api_bt_scan_devices():
+    """Return current discovered BLE devices."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    devices = BT_TOOLKIT.ble_scanner.get_devices()
+    return jsonify({"status": "ok", "devices": devices, "count": len(devices),
+                    "scanning": BT_TOOLKIT.ble_scanner.is_scanning})
+
+
+@app.route('/api/bt/advertise/start', methods=['POST'])
+def api_bt_adv_start():
+    """Start BLE advertising with JSON config."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    config = request.get_json() or {}
+    result = BT_TOOLKIT.ble_advertiser.start_advertisement(config)
+    return jsonify(result)
+
+
+@app.route('/api/bt/advertise/stop', methods=['POST'])
+def api_bt_adv_stop():
+    """Stop all or specific advertisement."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    data = request.get_json() or {}
+    BT_TOOLKIT.ble_advertiser.stop_advertisement(data.get('adv_id'))
+    return jsonify({"status": "ok"})
+
+
+@app.route('/api/bt/advertise/status', methods=['GET'])
+def api_bt_adv_status():
+    """Current advertisement status."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    return jsonify(BT_TOOLKIT.ble_advertiser.get_status())
+
+
+@app.route('/api/bt/gatt/connect', methods=['POST'])
+def api_bt_gatt_connect():
+    """Connect to a BLE device for GATT exploration."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    data = request.get_json() or {}
+    address = data.get('address')
+    if not address:
+        return jsonify({"status": "error", "message": "address required"}), 400
+    result = BT_TOOLKIT.gatt_explorer.connect(address, adapter=data.get('adapter', 'hci0'))
+    return jsonify(result)
+
+
+@app.route('/api/bt/gatt/disconnect', methods=['POST'])
+def api_bt_gatt_disconnect():
+    """Disconnect from current GATT device."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    return jsonify(BT_TOOLKIT.gatt_explorer.disconnect())
+
+
+@app.route('/api/bt/gatt/services', methods=['GET'])
+def api_bt_gatt_services():
+    """Enumerate GATT services and characteristics."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    return jsonify(BT_TOOLKIT.gatt_explorer.get_services())
+
+
+@app.route('/api/bt/gatt/read', methods=['POST'])
+def api_bt_gatt_read():
+    """Read a GATT characteristic."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    data = request.get_json() or {}
+    char_uuid = data.get('char_uuid')
+    if not char_uuid:
+        return jsonify({"status": "error", "message": "char_uuid required"}), 400
+    return jsonify(BT_TOOLKIT.gatt_explorer.read_characteristic(char_uuid))
+
+
+@app.route('/api/bt/gatt/write', methods=['POST'])
+def api_bt_gatt_write():
+    """Write to a GATT characteristic."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    data = request.get_json() or {}
+    char_uuid = data.get('char_uuid')
+    value_hex = data.get('value_hex')
+    if not char_uuid or not value_hex:
+        return jsonify({"status": "error", "message": "char_uuid and value_hex required"}), 400
+    return jsonify(BT_TOOLKIT.gatt_explorer.write_characteristic(
+        char_uuid, value_hex, with_response=data.get('with_response', True)))
+
+
+@app.route('/api/bt/gatt/subscribe', methods=['POST'])
+def api_bt_gatt_subscribe():
+    """Subscribe to GATT notifications."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    data = request.get_json() or {}
+    char_uuid = data.get('char_uuid')
+    if not char_uuid:
+        return jsonify({"status": "error", "message": "char_uuid required"}), 400
+    return jsonify(BT_TOOLKIT.gatt_explorer.subscribe_notifications(char_uuid))
+
+
+@app.route('/api/bt/classic/discover', methods=['GET'])
+def api_bt_classic_discover():
+    """Run classic BT inquiry scan."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    duration = int(request.args.get('duration', 8))
+    devices = BT_TOOLKIT.classic_discovery.discover(duration=duration)
+    return jsonify({"status": "ok", "devices": devices, "count": len(devices)})
+
+
+@app.route('/api/bt/classic/sdp/<path:addr>', methods=['GET'])
+def api_bt_classic_sdp(addr):
+    """SDP service discovery on a classic BT device."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    services = BT_TOOLKIT.classic_discovery.sdp_lookup(addr)
+    return jsonify({"status": "ok", "address": addr, "services": services, "count": len(services)})
+
+
+@app.route('/api/bt/monitor/start', methods=['GET'])
+def api_bt_monitor_start():
+    """Start HCI monitor (btmon)."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    filters_str = request.args.get('filters', '')
+    filters = [f.strip() for f in filters_str.split(',') if f.strip()]
+    BT_TOOLKIT.hci_monitor.start(filters=filters if filters else None)
+    return jsonify({"status": "ok", "monitoring": True})
+
+
+@app.route('/api/bt/monitor/stop', methods=['GET'])
+def api_bt_monitor_stop():
+    """Stop HCI monitor."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    BT_TOOLKIT.hci_monitor.stop()
+    return jsonify({"status": "ok", "monitoring": False})
+
+
+@app.route('/api/bt/test/adv-flood', methods=['POST'])
+def api_bt_test_adv_flood():
+    """Start advertising flood resilience test."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    config = request.get_json() or {}
+    return jsonify(BT_TOOLKIT.resilience_tests.start_adv_flood(config))
+
+
+@app.route('/api/bt/test/name-rotate', methods=['POST'])
+def api_bt_test_name_rotate():
+    """Start name rotation resilience test."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    config = request.get_json() or {}
+    return jsonify(BT_TOOLKIT.resilience_tests.start_name_rotation(config))
+
+
+@app.route('/api/bt/test/stress', methods=['POST'])
+def api_bt_test_stress():
+    """Start connection stress resilience test."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    config = request.get_json() or {}
+    return jsonify(BT_TOOLKIT.resilience_tests.start_connection_stress(config))
+
+
+@app.route('/api/bt/test/stop', methods=['POST'])
+def api_bt_test_stop():
+    """Stop all running resilience tests."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    BT_TOOLKIT.resilience_tests.stop_all()
+    return jsonify({"status": "ok"})
+
+
+@app.route('/api/bt/test/status', methods=['GET'])
+def api_bt_test_status():
+    """Get status of running resilience tests."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    return jsonify(BT_TOOLKIT.resilience_tests.get_status())
+
+
+@app.route('/api/bt/test/channel-assessment', methods=['GET'])
+def api_bt_test_channel():
+    """Read local RF channel assessment."""
+    if not BT_TOOLKIT:
+        return jsonify({"status": "error", "message": "BT Toolkit not initialised"}), 503
+    adapter = request.args.get('adapter', 'hci0')
+    return jsonify(BT_TOOLKIT.resilience_tests.get_channel_assessment(adapter))
 
 
 # ---- BLE, GPS & Station API routes ----

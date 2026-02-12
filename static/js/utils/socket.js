@@ -64,7 +64,9 @@ window.MeshSocket = (function() {
             'adsb_aircraft', 'ais_vessels', 'ais_vessel_update',
             'aprs_stations', 'weather_data', 'webcams_data',
             'metoffice_warnings', 'lightning_strike', 'lightning_alert',
-            'zones_updated', 'zone_event', 'new_incident', 'ports'
+            'zones_updated', 'zone_event', 'new_incident', 'ports',
+            'bt_device_found', 'bt_device_updated', 'bt_scan_complete',
+            'bt_gatt_data', 'bt_hci_event', 'bt_test_status'
         ];
 
         events.forEach(function(event) {

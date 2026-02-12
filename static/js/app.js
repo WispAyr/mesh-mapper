@@ -50,6 +50,7 @@
             AircraftPanel.init();
             SettingsPanel.init();
             if (window.StationPanel) StationPanel.init();
+            if (window.BTToolkit) BTToolkit.init();
 
             // 5. Store layer module references
             layerModules = {
@@ -70,6 +71,7 @@
             setupKeyboardShortcuts();
             setupSectionToggles();
             setupTopBarButtons();
+            setupBTToolkit();
 
             // 7. Fetch initial data via REST
             fetchInitialData();
@@ -237,6 +239,9 @@
                 case 'escape':
                     MeshMap.removePopup();
                     break;
+                case 'b':
+                    toggleBTToolkit();
+                    break;
                 case 'h':
                     // Home — fly to default center
                     MeshMap.flyTo(MeshMap.DEFAULT_CENTER[0], MeshMap.DEFAULT_CENTER[1], 6);
@@ -308,6 +313,52 @@
     function updateLoadingStatus(text) {
         var el = document.getElementById('loading-status');
         if (el) el.textContent = text;
+    }
+
+    // ============ Bluetooth Toolkit ============
+    var btToolkitOpen = false;
+    var btToolkitRendered = false;
+
+    function setupBTToolkit() {
+        var btn = document.getElementById('btn-bt-toolkit');
+        if (btn) {
+            btn.addEventListener('click', function() {
+                toggleBTToolkit();
+            });
+        }
+        var closeBtn = document.getElementById('bt-toolkit-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function() {
+                toggleBTToolkit(false);
+            });
+        }
+    }
+
+    function toggleBTToolkit(forceState) {
+        var overlay = document.getElementById('bt-toolkit-overlay');
+        var btn = document.getElementById('btn-bt-toolkit');
+        if (!overlay) return;
+
+        var shouldOpen = forceState !== undefined ? forceState : !btToolkitOpen;
+
+        if (shouldOpen) {
+            // Render panel content on first open
+            if (!btToolkitRendered && window.BTToolkit) {
+                var body = document.getElementById('bt-toolkit-body');
+                if (body) {
+                    body.innerHTML = BTToolkit.renderPanel();
+                    BTToolkit.attachEvents();
+                    btToolkitRendered = true;
+                }
+            }
+            overlay.style.display = 'flex';
+            if (btn) btn.classList.add('active');
+            btToolkitOpen = true;
+        } else {
+            overlay.style.display = 'none';
+            if (btn) btn.classList.remove('active');
+            btToolkitOpen = false;
+        }
     }
 
     // ============ Start ============

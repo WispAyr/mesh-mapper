@@ -6,6 +6,7 @@
     <title>Mesh Mapper — Drone Detection System</title>
     <link rel="stylesheet" href="/static/vendor/maplibre-gl.css">
     <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="stylesheet" href="/static/css/bt-toolkit.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 </head>
 <body>
@@ -34,6 +35,9 @@
             </button>
             <button id="btn-fullscreen" class="icon-btn" title="Fullscreen (F)">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            </button>
+            <button id="btn-bt-toolkit" class="icon-btn" title="Bluetooth Toolkit (B)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 6.5l11 11L12 23V1l5.5 5.5-11 11"/></svg>
             </button>
             <button id="btn-right-panel" class="icon-btn" title="Drone Detections (D)">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
@@ -300,6 +304,17 @@
     <!-- Map Container -->
     <div id="map"></div>
 
+    <!-- Bluetooth Toolkit Overlay (hidden by default) -->
+    <div id="bt-toolkit-overlay" class="bt-toolkit-overlay" style="display:none">
+        <div class="bt-toolkit-header">
+            <h2>🔵 Bluetooth Toolkit</h2>
+            <button class="panel-close" id="bt-toolkit-close">✕</button>
+        </div>
+        <div class="bt-toolkit-body" id="bt-toolkit-body">
+            <!-- Dynamically populated by bt-toolkit.js -->
+        </div>
+    </div>
+
     <!-- Bottom Status Bar -->
     <footer id="bottom-bar">
         <div class="status-group">
@@ -352,6 +367,7 @@
     <script src="/static/js/panels/aircraft-panel.js"></script>
     <script src="/static/js/panels/settings-panel.js"></script>
     <script src="/static/js/panels/station-panel.js"></script>
+    <script src="/static/js/panels/bt-toolkit.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
