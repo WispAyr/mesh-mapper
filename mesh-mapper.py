@@ -23,7 +23,7 @@ from typing import Optional, List, Dict, Any
 from email.utils import parsedate_to_datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from flask import Flask, request, jsonify, redirect, url_for, render_template, render_template_string, send_file, Response
+from flask import Flask, request, jsonify, redirect, url_for, render_template, render_template_string, send_file, send_from_directory, Response
 from flask_socketio import SocketIO, emit
 from functools import wraps
 from collections import deque
@@ -2238,7 +2238,7 @@ def set_server_webhook_url(url: str):
     WEBHOOK_URL = url
     save_webhook_url()  # Save to disk whenever URL is updated
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
 socketio = SocketIO(app, cors_allowed_origins="*")  # Enable Socket.IO
 
@@ -6146,7 +6146,8 @@ PORT_SELECTION_PAGE = '''
 '''
 
     # Updated: The main mapping page now shows serial statuses for all selected USB devices.
-HTML_PAGE = '''
+if False: # Old inline HTML UI - commented out
+    HTML_PAGE = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12114,7 +12115,7 @@ def index():
             # If auto-connection failed, redirect to port selection
             return redirect(url_for('select_ports_get'))
     
-    return HTML_PAGE
+    return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/api/detections', methods=['GET'])
 def api_detections():
