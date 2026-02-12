@@ -3,6 +3,7 @@ import time
 import json
 import csv
 import logging
+from logging.handlers import RotatingFileHandler
 import colorsys
 import threading
 import requests
@@ -22,8 +23,9 @@ from typing import Optional, List, Dict, Any
 from email.utils import parsedate_to_datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from flask import Flask, request, jsonify, redirect, url_for, render_template, render_template_string, send_file
+from flask import Flask, request, jsonify, redirect, url_for, render_template, render_template_string, send_file, Response
 from flask_socketio import SocketIO, emit
+from functools import wraps
 from collections import deque
 import websocket
 import ssl
@@ -36,7 +38,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
     handlers=[
-        logging.FileHandler('mapper.log'),
+        RotatingFileHandler('mapper.log', maxBytes=50*1024*1024, backupCount=3),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -80,7 +82,7 @@ APRS_UPDATE_INTERVAL = 120  # Update APRS data every 120 seconds
 APRS_API_KEY = os.environ.get('APRS_API_KEY', '')  # API key from aprs.fi
 ADSB_DETECTION_ENABLED = True  # ADSB aircraft detection enabled by default
 ADSB_AIRCRAFT = {}  # Store current ADSB aircraft data: {hex: aircraft_data}
-ADSB_UPDATE_INTERVAL = 5  # Update ADSB data every 5 seconds (faster for real-time tracking)
+ADSB_UPDATE_INTERVAL = 30  # Update ADSB data every 30 seconds (was 5s, reduced to avoid 429 rate limiting)
 ADSB_CENTER_LAT = 56.5  # Center latitude for ADSB search (Scotland center, near Edinburgh)
 ADSB_CENTER_LON = -4.0  # Center longitude for ADSB search (Scotland center)
 ADSB_RADIUS_KM = 1000  # Search radius in kilometers (maximum coverage - covers UK and surrounding areas)
@@ -100,6 +102,28 @@ METOFFICE_RSS_URL = 'https://www.metoffice.gov.uk/public/data/PWSCache/WarningsR
 METOFFICE_GEOJSON_URL = 'https://www.metoffice.gov.uk/public/data/NSWWS/WarningsJSON'  # Met Office NSWWS API (GeoJSON format)
 
 # ----------------------
+# Thread Locks for shared global dicts
+# ----------------------
+ADSB_AIRCRAFT_LOCK = threading.Lock()
+AIS_VESSELS_LOCK = threading.Lock()
+APRS_STATIONS_LOCK = threading.Lock()
+
+# ----------------------
+# Exponential backoff state for rate-limited APIs
+# ----------------------
+_adsb_backoff_interval = ADSB_UPDATE_INTERVAL  # current ADSB poll interval (doubles on 429)
+_ais_backoff_interval = AIS_UPDATE_INTERVAL
+_aprs_backoff_interval = APRS_UPDATE_INTERVAL
+_MAX_BACKOFF = 120  # max seconds between retries after 429
+
+# ----------------------
+# Stale data thresholds (seconds)
+# ----------------------
+ADSB_STALE_SECONDS = 300    # 5 minutes
+AIS_STALE_SECONDS = 1800    # 30 minutes
+APRS_STALE_SECONDS = 3600   # 60 minutes
+
+# ----------------------
 # Performance Optimizations
 # ----------------------
 MAX_DETECTION_HISTORY = 1000  # Limit detection history size
@@ -109,7 +133,9 @@ last_kml_generation = 0
 last_cumulative_kml_generation = 0
 
 def cleanup_old_detections():
-    """Mark stale detections as inactive instead of removing them to preserve session persistence"""
+    """Mark stale detections as inactive instead of removing them to preserve session persistence.
+    Also prune stale data from ADSB_AIRCRAFT, AIS_VESSELS, and APRS_STATIONS dicts."""
+    global ADSB_AIRCRAFT, AIS_VESSELS, APRS_STATIONS
     current_time = time.time()
     
     for mac, detection in tracked_pairs.items():
@@ -126,6 +152,33 @@ def cleanup_old_detections():
         for key in keys_to_remove:
             del FAA_CACHE[key]
     
+    # Prune stale ADSB aircraft (not seen in 5 minutes)
+    with ADSB_AIRCRAFT_LOCK:
+        stale_adsb = [k for k, v in ADSB_AIRCRAFT.items()
+                      if current_time - v.get('last_seen', v.get('timestamp', 0)) > ADSB_STALE_SECONDS]
+        for k in stale_adsb:
+            del ADSB_AIRCRAFT[k]
+        if stale_adsb:
+            logger.info(f"Pruned {len(stale_adsb)} stale ADSB aircraft (>{ADSB_STALE_SECONDS}s)")
+
+    # Prune stale AIS vessels (not seen in 30 minutes)
+    with AIS_VESSELS_LOCK:
+        stale_ais = [k for k, v in AIS_VESSELS.items()
+                     if current_time - v.get('timestamp', 0) > AIS_STALE_SECONDS]
+        for k in stale_ais:
+            del AIS_VESSELS[k]
+        if stale_ais:
+            logger.info(f"Pruned {len(stale_ais)} stale AIS vessels (>{AIS_STALE_SECONDS}s)")
+
+    # Prune stale APRS stations (not seen in 60 minutes)
+    with APRS_STATIONS_LOCK:
+        stale_aprs = [k for k, v in APRS_STATIONS.items()
+                      if current_time - v.get('lasttime', v.get('time', 0)) > APRS_STALE_SECONDS]
+        for k in stale_aprs:
+            del APRS_STATIONS[k]
+        if stale_aprs:
+            logger.info(f"Pruned {len(stale_aprs)} stale APRS stations (>{APRS_STALE_SECONDS}s)")
+
     # Clean up expired NOTAM zones
     filter_expired_notam_zones()
 
@@ -498,12 +551,15 @@ def update_ais_data():
             if mmsi:
                 new_vessels[mmsi] = vessel
         
-        AIS_VESSELS = new_vessels
+        with AIS_VESSELS_LOCK:
+            AIS_VESSELS = new_vessels
         
         # Emit to connected clients
         try:
-            socketio.emit('ais_vessels', {'vessels': list(AIS_VESSELS.values())})
-            logger.info(f"Emitted {len(AIS_VESSELS)} AIS vessels to clients")
+            with AIS_VESSELS_LOCK:
+                vessels_emit = list(AIS_VESSELS.values())
+            socketio.emit('ais_vessels', {'vessels': vessels_emit})
+            logger.info(f"Emitted {len(vessels_emit)} AIS vessels to clients")
         except Exception as e:
             logger.debug(f"Error emitting AIS vessels: {e}")
             
@@ -655,24 +711,25 @@ def process_ais_message(ais_data):
             return  # Invalid position
         
         # Update or create vessel entry
-        vessel = AIS_VESSELS.get(mmsi, {})
-        vessel.update({
-            'mmsi': mmsi,
-            'lat': lat,
-            'lon': lon,
-            'course': course,
-            'speed': speed,
-            'heading': heading if heading != 511 else 0,  # 511 = not available
-            'timestamp': time.time()
-        })
-        
-        # Preserve static data if it exists
-        if 'name' not in vessel:
-            vessel['name'] = f"Vessel {mmsi}"
-        if 'vessel_type' not in vessel:
-            vessel['vessel_type'] = 'Unknown'
-        
-        AIS_VESSELS[mmsi] = vessel
+        with AIS_VESSELS_LOCK:
+            vessel = AIS_VESSELS.get(mmsi, {})
+            vessel.update({
+                'mmsi': mmsi,
+                'lat': lat,
+                'lon': lon,
+                'course': course,
+                'speed': speed,
+                'heading': heading if heading != 511 else 0,  # 511 = not available
+                'timestamp': time.time()
+            })
+            
+            # Preserve static data if it exists
+            if 'name' not in vessel:
+                vessel['name'] = f"Vessel {mmsi}"
+            if 'vessel_type' not in vessel:
+                vessel['vessel_type'] = 'Unknown'
+            
+            AIS_VESSELS[mmsi] = vessel
         logger.info(f"Updated AIS vessel {mmsi} ({vessel.get('name', 'Unknown')}) at {lat}, {lon}")
         
         # Save to database
@@ -708,28 +765,29 @@ def process_ais_static_data(ais_data):
         width = float(message.get('Dimension', {}).get('C', 0) + message.get('Dimension', {}).get('D', 0))
         
         # Update vessel with static data
-        vessel = AIS_VESSELS.get(mmsi, {})
-        if name:
-            vessel['name'] = name
-        if vessel_type:
-            # Map AIS vessel type codes to names (simplified)
-            type_map = {
-                30: 'Fishing', 31: 'Towing', 32: 'Towing (long)', 33: 'Dredging',
-                34: 'Diving', 35: 'Military', 36: 'Sailing', 37: 'Pleasure Craft',
-                50: 'Pilot', 51: 'Search and Rescue', 52: 'Tug', 53: 'Port Tender',
-                54: 'Anti-pollution', 55: 'Law Enforcement', 58: 'Medical',
-                59: 'Passenger', 60: 'Passenger (hazardous)', 70: 'Cargo',
-                71: 'Cargo (hazardous)', 72: 'Tanker', 73: 'Tanker (hazardous)',
-                80: 'Other'
-            }
-            vessel['vessel_type'] = type_map.get(vessel_type, f'Type {vessel_type}')
-        if length > 0:
-            vessel['length'] = length
-        if width > 0:
-            vessel['width'] = width
-        
-        vessel['mmsi'] = mmsi
-        AIS_VESSELS[mmsi] = vessel
+        with AIS_VESSELS_LOCK:
+            vessel = AIS_VESSELS.get(mmsi, {})
+            if name:
+                vessel['name'] = name
+            if vessel_type:
+                # Map AIS vessel type codes to names (simplified)
+                type_map = {
+                    30: 'Fishing', 31: 'Towing', 32: 'Towing (long)', 33: 'Dredging',
+                    34: 'Diving', 35: 'Military', 36: 'Sailing', 37: 'Pleasure Craft',
+                    50: 'Pilot', 51: 'Search and Rescue', 52: 'Tug', 53: 'Port Tender',
+                    54: 'Anti-pollution', 55: 'Law Enforcement', 58: 'Medical',
+                    59: 'Passenger', 60: 'Passenger (hazardous)', 70: 'Cargo',
+                    71: 'Cargo (hazardous)', 72: 'Tanker', 73: 'Tanker (hazardous)',
+                    80: 'Other'
+                }
+                vessel['vessel_type'] = type_map.get(vessel_type, f'Type {vessel_type}')
+            if length > 0:
+                vessel['length'] = length
+            if width > 0:
+                vessel['width'] = width
+            
+            vessel['mmsi'] = mmsi
+            AIS_VESSELS[mmsi] = vessel
         
         # Emit update to clients
         try:
@@ -1218,9 +1276,18 @@ def fetch_aprs_data(callsigns=None, bounds=None):
             
             response = requests.get(url, params=params, headers=headers, timeout=30)
             
+            if response.status_code == 429:
+                global _aprs_backoff_interval
+                _aprs_backoff_interval = min(_aprs_backoff_interval * 2, _MAX_BACKOFF)
+                logger.warning(f"APRS API rate limited (429). Backing off to {_aprs_backoff_interval}s")
+                break  # Stop batching, wait for next cycle
+            
             if response.status_code != 200:
                 logger.error(f"APRS API HTTP error: {response.status_code} - {response.reason}")
                 continue
+            
+            # Success — reset backoff
+            _aprs_backoff_interval = APRS_UPDATE_INTERVAL
             
             data = response.json()
             
@@ -1317,7 +1384,8 @@ def update_aprs_data():
             if callsign:
                 new_stations[callsign] = station
         
-        APRS_STATIONS = new_stations
+        with APRS_STATIONS_LOCK:
+            APRS_STATIONS = new_stations
         
         # Save to database
         for station in stations:
@@ -1328,8 +1396,10 @@ def update_aprs_data():
         
         # Emit to connected clients
         try:
-            socketio.emit('aprs_stations', {'stations': list(APRS_STATIONS.values())})
-            logger.debug(f"Emitted {len(APRS_STATIONS)} APRS stations to clients")
+            with APRS_STATIONS_LOCK:
+                stations_emit = list(APRS_STATIONS.values())
+            socketio.emit('aprs_stations', {'stations': stations_emit})
+            logger.debug(f"Emitted {len(stations_emit)} APRS stations to clients")
         except Exception as e:
             logger.debug(f"Error emitting APRS stations: {e}")
             
@@ -1337,7 +1407,7 @@ def update_aprs_data():
         logger.error(f"Error updating APRS data: {e}")
 
 def start_aprs_updater():
-    """Start periodic APRS data updates"""
+    """Start periodic APRS data updates (with exponential backoff on 429)"""
     def aprs_updater():
         while not SHUTDOWN_EVENT.is_set():
             try:
@@ -1349,8 +1419,8 @@ def start_aprs_updater():
             except Exception as e:
                 logger.error(f"Error in APRS updater loop: {e}")
             
-            # Wait for update interval
-            SHUTDOWN_EVENT.wait(APRS_UPDATE_INTERVAL)
+            # Wait using backoff interval (increases on 429, resets on success)
+            SHUTDOWN_EVENT.wait(_aprs_backoff_interval)
     
     updater_thread = threading.Thread(target=aprs_updater, daemon=True)
     updater_thread.start()
@@ -1368,7 +1438,7 @@ def fetch_adsb_data(lat, lon, radius_km=100):
     Returns:
         List of aircraft dictionaries with ADSB data
     """
-    global ADSB_AIRCRAFT
+    global ADSB_AIRCRAFT, _adsb_backoff_interval
     
     try:
         # Convert km to nautical miles (API uses nautical miles)
@@ -1381,9 +1451,17 @@ def fetch_adsb_data(lat, lon, radius_km=100):
         
         response = requests.get(url, headers=headers, timeout=10)
         
+        if response.status_code == 429:
+            _adsb_backoff_interval = min(_adsb_backoff_interval * 2, _MAX_BACKOFF)
+            logger.warning(f"ADSB API rate limited (429). Backing off to {_adsb_backoff_interval}s")
+            return []
+        
         if response.status_code != 200:
             logger.warning(f"ADSB API HTTP error: {response.status_code}")
             return []
+        
+        # Success — reset backoff to configured interval
+        _adsb_backoff_interval = ADSB_UPDATE_INTERVAL
         
         data = response.json()
         
@@ -1522,14 +1600,15 @@ def update_adsb_data():
                 new_aircraft[hex_code] = aircraft
         
         # Mark old aircraft as stale (not seen in last 2 minutes)
-        for hex_code, aircraft in ADSB_AIRCRAFT.items():
-            if hex_code not in new_aircraft:
-                # Check if it's been more than 2 minutes since last seen
-                if current_time - aircraft.get("last_seen", 0) < 120:
-                    # Keep it for now (might come back)
-                    new_aircraft[hex_code] = aircraft
-        
-        ADSB_AIRCRAFT = new_aircraft
+        with ADSB_AIRCRAFT_LOCK:
+            for hex_code, aircraft in ADSB_AIRCRAFT.items():
+                if hex_code not in new_aircraft:
+                    # Check if it's been more than 2 minutes since last seen
+                    if current_time - aircraft.get("last_seen", 0) < 120:
+                        # Keep it for now (might come back)
+                        new_aircraft[hex_code] = aircraft
+            
+            ADSB_AIRCRAFT = new_aircraft
         
         # Save to database
         for aircraft in aircraft_list:
@@ -1540,8 +1619,10 @@ def update_adsb_data():
         
         # Emit to connected clients
         try:
-            socketio.emit('adsb_aircraft', {'aircraft': list(ADSB_AIRCRAFT.values())})
-            logger.debug(f"Emitted {len(ADSB_AIRCRAFT)} ADSB aircraft to clients")
+            with ADSB_AIRCRAFT_LOCK:
+                aircraft_list_emit = list(ADSB_AIRCRAFT.values())
+            socketio.emit('adsb_aircraft', {'aircraft': aircraft_list_emit})
+            logger.debug(f"Emitted {len(aircraft_list_emit)} ADSB aircraft to clients")
         except Exception as e:
             logger.debug(f"Error emitting ADSB aircraft: {e}")
             
@@ -1549,7 +1630,7 @@ def update_adsb_data():
         logger.error(f"Error updating ADSB data: {e}")
 
 def start_adsb_updater():
-    """Start periodic ADSB data updates"""
+    """Start periodic ADSB data updates (with exponential backoff on 429)"""
     def adsb_updater():
         # Wait 5 seconds after startup before first update
         time.sleep(5)
@@ -1564,8 +1645,8 @@ def start_adsb_updater():
             except Exception as e:
                 logger.error(f"Error in ADSB updater loop: {e}")
             
-            # Wait for update interval
-            SHUTDOWN_EVENT.wait(ADSB_UPDATE_INTERVAL)
+            # Wait using backoff interval (increases on 429, resets on success)
+            SHUTDOWN_EVENT.wait(_adsb_backoff_interval)
     
     updater_thread = threading.Thread(target=adsb_updater, daemon=True)
     updater_thread.start()
@@ -2158,7 +2239,59 @@ def set_server_webhook_url(url: str):
     save_webhook_url()  # Save to disk whenever URL is updated
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
 socketio = SocketIO(app, cors_allowed_origins="*")  # Enable Socket.IO
+
+# ----------------------
+# Basic HTTP Authentication
+# ----------------------
+AUTH_PASSWORD = os.environ.get('MESH_MAPPER_PASSWORD', 'dronedrone')
+AUTH_USERNAME = os.environ.get('MESH_MAPPER_USERNAME', 'admin')
+
+def check_auth(username, password):
+    """Check if a username/password combination is valid."""
+    return username == AUTH_USERNAME and password == AUTH_PASSWORD
+
+def authenticate():
+    """Send a 401 response that enables basic auth."""
+    return Response(
+        'Authentication required. Please log in.', 401,
+        {'WWW-Authenticate': 'Basic realm="Mesh Mapper"'})
+
+def requires_auth(f):
+    """Decorator that requires HTTP Basic Auth on a route."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
+
+# Exempt paths that don't need auth
+AUTH_EXEMPT_PATHS = {'/health', '/api/health'}
+
+@app.before_request
+def before_request_auth():
+    """Apply authentication to all routes except health endpoints and SocketIO."""
+    if request.path in AUTH_EXEMPT_PATHS:
+        return None
+    # Skip auth for socketio polling/websocket (handled by SocketIO namespace)
+    if request.path.startswith('/socket.io'):
+        return None
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        return authenticate()
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Unauthenticated health check endpoint."""
+    return jsonify({"status": "ok", "uptime": time.time()}), 200
+
+@app.route('/api/health', methods=['GET'])
+def api_health_check():
+    """Unauthenticated API health check endpoint."""
+    return jsonify({"status": "ok", "uptime": time.time()}), 200
 
 # Define emit_serial_status early to avoid NameError in threads
 def emit_serial_status():
@@ -12908,19 +13041,25 @@ def emit_faa_cache():
 
 def emit_ais_vessels():
     try:
-        socketio.emit('ais_vessels', {'vessels': list(AIS_VESSELS.values())})
+        with AIS_VESSELS_LOCK:
+            vessels = list(AIS_VESSELS.values())
+        socketio.emit('ais_vessels', {'vessels': vessels})
     except Exception as e:
         logger.debug(f"Error emitting AIS vessels: {e}")
 
 def emit_aprs_stations():
     try:
-        socketio.emit('aprs_stations', {'stations': list(APRS_STATIONS.values())})
+        with APRS_STATIONS_LOCK:
+            stations = list(APRS_STATIONS.values())
+        socketio.emit('aprs_stations', {'stations': stations})
     except Exception as e:
         logger.debug(f"Error emitting APRS stations: {e}")
 
 def emit_adsb_aircraft():
     try:
-        socketio.emit('adsb_aircraft', {'aircraft': list(ADSB_AIRCRAFT.values())})
+        with ADSB_AIRCRAFT_LOCK:
+            aircraft = list(ADSB_AIRCRAFT.values())
+        socketio.emit('adsb_aircraft', {'aircraft': aircraft})
     except Exception as e:
         logger.debug(f"Error emitting ADSB aircraft: {e}")
 
@@ -13081,11 +13220,12 @@ def set_lightning_detection():
 @app.route('/api/ais_vessels', methods=['GET'])
 def api_ais_vessels():
     """Get current AIS vessel data"""
-    global AIS_VESSELS
+    with AIS_VESSELS_LOCK:
+        vessels = list(AIS_VESSELS.values())
     return jsonify({
         "status": "ok",
-        "vessels": list(AIS_VESSELS.values()),
-        "count": len(AIS_VESSELS)
+        "vessels": vessels,
+        "count": len(vessels)
     })
 
 @app.route('/api/maritime_ports', methods=['GET'])
@@ -13119,7 +13259,8 @@ def set_ais_detection():
         logger.info("AIS detection enabled")
     else:
         # Clear vessels when disabling
-        AIS_VESSELS.clear()
+        with AIS_VESSELS_LOCK:
+            AIS_VESSELS.clear()
         try:
             socketio.emit('ais_vessels', {'vessels': []})
         except Exception as e:
@@ -13143,7 +13284,9 @@ def api_ais_update():
     """Manually trigger AIS data update"""
     try:
         update_ais_data()
-        return jsonify({"status": "ok", "vessel_count": len(AIS_VESSELS)})
+        with AIS_VESSELS_LOCK:
+            count = len(AIS_VESSELS)
+        return jsonify({"status": "ok", "vessel_count": count})
     except Exception as e:
         logger.error(f"Error in manual AIS update: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -13303,11 +13446,12 @@ def set_ais_config():
 @app.route('/api/aprs_stations', methods=['GET'])
 def api_aprs_stations():
     """Get current APRS station data"""
-    global APRS_STATIONS
+    with APRS_STATIONS_LOCK:
+        stations = list(APRS_STATIONS.values())
     return jsonify({
         "status": "ok",
-        "stations": list(APRS_STATIONS.values()),
-        "count": len(APRS_STATIONS)
+        "stations": stations,
+        "count": len(stations)
     })
 
 @app.route('/api/aprs_detection', methods=['GET'])
@@ -13331,7 +13475,8 @@ def set_aprs_detection():
         logger.info("APRS detection enabled")
     else:
         # Clear stations when disabling
-        APRS_STATIONS.clear()
+        with APRS_STATIONS_LOCK:
+            APRS_STATIONS.clear()
         try:
             socketio.emit('aprs_stations', {'stations': []})
         except Exception as e:
@@ -13421,11 +13566,12 @@ def set_aprs_config():
 @app.route('/api/adsb_aircraft', methods=['GET'])
 def api_adsb_aircraft():
     """Get current ADSB aircraft data"""
-    global ADSB_AIRCRAFT
+    with ADSB_AIRCRAFT_LOCK:
+        aircraft = list(ADSB_AIRCRAFT.values())
     return jsonify({
         "status": "ok",
-        "aircraft": list(ADSB_AIRCRAFT.values()),
-        "count": len(ADSB_AIRCRAFT)
+        "aircraft": aircraft,
+        "count": len(aircraft)
     })
 
 @app.route('/api/adsb_detection', methods=['GET'])
