@@ -1,0 +1,16 @@
+{
+  "windy_api_key": "lMB6Y9omePmFJzNDV3iEaoHU1hkHgS4g",
+  "locations": [
+    {
+      "lat": 55.4580,
+      "lon": -4.6290,
+      "name": "Ayr"
+    },
+    {
+      "lat": 55.8642,
+      "lon": -4.2518,
+      "name": "Glasgow"
+    }
+  ]
+}
+

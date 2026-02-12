@@ -1,0 +1,7 @@
+Flask==3.1.1
+Flask-SocketIO==5.5.1
+pyserial==3.5
+requests==2.32.3
+urllib3==2.3.0
+python-socketio==5.14.3
+websocket-client==1.7.0

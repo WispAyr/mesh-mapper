@@ -1,0 +1,7 @@
+pyserial==3.5
+python-socketio==5.14.3
+requests==2.32.3
+types-pyserial==3.5
+types-requests==2.32
+types-requests-oauthlib==2.0
+urllib3==2.3.0

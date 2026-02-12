@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Detection data files (generated at runtime)
+detections_*.csv
+detections_*.kml
+cumulative_detections.csv
+cumulative.kml
+
+# Database
+*.db
+mesh_mapper.db
+
+# Logs
+*.log
+mapper.log
+
+# Cache and temporary files
+faa_cache.csv
+faa_log.csv
+*.tmp
+*.swp
+*~
+
+# Runtime-downloaded data (large, regenerated)
+notam.xml
+openair.txt
+zones.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Backups
+*.bak
+*.backup
+*_backup.zip
+mesh-mapper-backup-*.zip

@@ -1,0 +1,30 @@
+[Unit]
+Description=Drone Detection Mapper Service
+After=network.target usb-gadget.service
+Wants=network-online.target
+Requires=network-online.target
+
+[Service]
+Type=simple
+User=drone
+Group=drone
+WorkingDirectory=/home/drone/mesh-mapper
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/python3 /home/drone/mesh-mapper/mesh-mapper.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=drone-mapper
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+

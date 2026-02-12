@@ -1,0 +1,1614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Airspace View - Mesh Mapper</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            background: #0F1215;
+            color: #D6DAE0;
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #menu-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #36C3FF;
+            color: #0F1215;
+            border: none;
+            padding: 12px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            z-index: 1000;
+            font-weight: 500;
+        }
+        #menu-toggle:hover {
+            background: #4A90E2;
+        }
+        #menu-panel {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 400px;
+            max-width: 90vw;
+            height: 100vh;
+            background: #1F2329;
+            border-left: 1px solid #2A2F36;
+            z-index: 999;
+            overflow-y: auto;
+            transition: right 0.3s ease;
+            padding: 80px 24px 24px 24px;
+        }
+        #menu-panel.open {
+            right: 0;
+        }
+        .menu-section {
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #2A2F36;
+        }
+        .menu-section h3 {
+            color: #36C3FF;
+            font-size: 14px;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .stat-label {
+            color: #9DA3AD;
+        }
+        .stat-value {
+            color: #36C3FF;
+            font-weight: 600;
+        }
+        button {
+            background: #36C3FF;
+            color: #0F1215;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #4A90E2;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+            color: #36C3FF;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="loading">Initializing 3D Space...</div>
+    <button id="menu-toggle">☰ Menu</button>
+    
+    <div id="menu-panel">
+        <div class="menu-section">
+            <h3>Statistics</h3>
+            <div class="stat-row">
+                <span class="stat-label">ADSB Aircraft:</span>
+                <span class="stat-value" id="adsb-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Drones:</span>
+                <span class="stat-value" id="drone-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">AIS Vessels:</span>
+                <span class="stat-value" id="ais-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Zones:</span>
+                <span class="stat-value" id="zones-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Last Update:</span>
+                <span class="stat-value" id="last-update">--</span>
+            </div>
+        </div>
+        
+        <div class="menu-section">
+            <h3>Controls</h3>
+            <button id="reset-camera" style="width: 100%; margin-bottom: 8px;">Reset View</button>
+            <button id="toggle2DViewButton" style="width: 100%;">2D View</button>
+        </div>
+        
+        <div class="menu-section">
+            <h3>Aircraft & Ships</h3>
+            <div style="max-height: 300px; overflow-y: auto; margin-top: 12px;">
+                <div style="margin-bottom: 16px;">
+                    <h4 style="font-size: 12px; color: #36C3FF; margin-bottom: 8px; text-transform: uppercase;">Aircraft</h4>
+                    <div id="aircraft-list-3d" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                </div>
+                <div>
+                    <h4 style="font-size: 12px; color: #36C3FF; margin-bottom: 8px; text-transform: uppercase;">Ships</h4>
+                    <div id="ships-list-3d" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="menu-section">
+            <h3>Layer Visibility</h3>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="toggle-adsb" checked style="accent-color: #36C3FF;">
+                    <span style="font-size: 13px;">ADSB Aircraft</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="toggle-drones" checked style="accent-color: #F5C542;">
+                    <span style="font-size: 13px;">Drones</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="toggle-ais" checked style="accent-color: #45D98C;">
+                    <span style="font-size: 13px;">AIS Vessels</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="toggle-map" checked style="accent-color: #36C3FF;">
+                    <span style="font-size: 13px;">Map Layer</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="toggle-zones" checked style="accent-color: #F5C542;">
+                    <span style="font-size: 13px;">Zones</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="toggle-airspace" checked style="accent-color: #4A90E2;">
+                    <span style="font-size: 13px;">Airspace</span>
+                </label>
+            </div>
+        </div>
+        
+        <div class="menu-section">
+            <h3>ADSB Settings</h3>
+            <div class="stat-row">
+                <span class="stat-label">Status:</span>
+                <span class="stat-value" id="adsb-status">Loading...</span>
+            </div>
+            <div class="stat-row" style="margin-top: 8px;">
+                <span class="stat-label">Center:</span>
+                <span class="stat-value" style="font-size: 11px;">Ayr, Scotland</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Radius:</span>
+                <span class="stat-value" id="adsb-radius">100 km</span>
+            </div>
+            <button id="update-adsb" style="width: 100%; margin-top: 8px;">Update ADSB</button>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        
+        // Configuration - Ayr, Scotland
+        const config = {
+            centerLat: 55.458,  // Ayr, Scotland
+            centerLon: -4.629,
+            altitudeScale: 1.2,
+            floorHeight: 0,
+            radius: 100  // km
+        };
+        
+        // Earth radius constant (km)
+        const earthRadius = 6371;
+        
+        // State
+        const aircraftData = new Map(); // hex -> aircraft data
+        const droneData = new Map(); // mac -> drone data
+        const aisData = new Map(); // mmsi -> vessel data
+        const aircraftPaths = new Map(); // hex -> path array
+        const dronePaths = new Map(); // mac -> path array
+        const aisPaths = new Map(); // mmsi -> path array
+        let pathGroups = new THREE.Group(); // Group for all trails
+        
+        // Layer visibility
+        let showADSB = true;
+        let showDrones = true;
+        let showAIS = true;
+        let showMap = true;
+        let showZones = true;
+        let showAirspace = true;
+        
+        let scene, camera, renderer, controls;
+        let aircraftGroup, droneGroup, aisGroup, mapGroup, zonesGroup, airspaceGroup;
+        let loadedTiles = new Map();
+        const zonesData = new Map(); // zone_id -> zone data
+        let raycaster; // Will be initialized after THREE is loaded
+        let mouse; // Will be initialized after THREE is loaded
+        const aircraftLabels = new Map(); // hex -> label element
+        const selectedAircraft = new Set(); // hex codes of aircraft with visible labels
+        
+        // WebSocket connection
+        const socketProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socketHost = window.location.host;
+        const socket = io(`${socketProtocol}//${socketHost}`);
+        
+        // Initialize Three.js scene
+        function initScene() {
+            // Initialize raycaster and mouse now that THREE is available
+            if (!raycaster) {
+                raycaster = new THREE.Raycaster();
+            }
+            if (!mouse) {
+                mouse = new THREE.Vector2();
+            }
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0F1215);
+            scene.fog = new THREE.Fog(0x0F1215, 4000, 20000);
+            
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 50000);
+            camera.position.set(0, 50, 100);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('container').appendChild(renderer.domElement);
+            
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 10;
+            controls.maxDistance = 40000;
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 100, 50);
+            scene.add(directionalLight);
+            
+            // Groups
+            aircraftGroup = new THREE.Group();
+            scene.add(aircraftGroup);
+            
+            droneGroup = new THREE.Group();
+            scene.add(droneGroup);
+            
+            aisGroup = new THREE.Group();
+            scene.add(aisGroup);
+            
+            // Map group for terrain tiles
+            mapGroup = new THREE.Group();
+            mapGroup.position.y = 0; // Ground level
+            scene.add(mapGroup);
+            
+            // Zones group
+            zonesGroup = new THREE.Group();
+            scene.add(zonesGroup);
+            
+            // Airspace group
+            airspaceGroup = new THREE.Group();
+            scene.add(airspaceGroup);
+            
+            // Path trails group
+            pathGroups = new THREE.Group();
+            scene.add(pathGroups);
+            
+            // Grid
+            const gridHelper = new THREE.GridHelper(200, 40, 0x2A2F36, 0x1F2329);
+            scene.add(gridHelper);
+            
+            // Load map tiles
+            loadMapTiles();
+        }
+        
+        // Create zone mesh from polygon coordinates
+        function createZoneMesh(zone) {
+            let coordinates = zone.coordinates;
+            // Handle JSON string coordinates
+            if (typeof coordinates === 'string') {
+                try {
+                    coordinates = JSON.parse(coordinates);
+                } catch (e) {
+                    console.warn('Failed to parse zone coordinates:', e);
+                    return null;
+                }
+            }
+            if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 3) return null;
+            
+            // Create shape from polygon
+            const shape = new THREE.Shape();
+            coordinates.forEach((coord, i) => {
+                const pos = latLonToCartesian(coord[0], coord[1], 0);
+                if (i === 0) {
+                    shape.moveTo(pos.x, -pos.z);
+                } else {
+                    shape.lineTo(pos.x, -pos.z);
+                }
+            });
+            
+            // Determine height based on altitude range
+            const lowerAlt = zone.lower_altitude_ft || 0;
+            const upperAlt = zone.upper_altitude_ft || 400;
+            const height = (upperAlt - lowerAlt) * config.altitudeScale / 1000;
+            const baseHeight = (lowerAlt - config.floorHeight) * config.altitudeScale / 1000;
+            
+            // Determine color based on zone type, source, and name
+            let color;
+            const zoneType = zone.zone_type || '';
+            const source = zone.source || '';
+            const name = (zone.name || '').toUpperCase();
+            
+            // Check for specific airspace classes in name
+            if (name.includes('FRZ') || name.includes('PROHIBITED') || name.includes('CLASS A') || zoneType === 'critical') {
+                color = 0xE24A4A; // Red for critical/restricted
+            } else if (name.includes('CTA') || name.includes('CONTROL AREA')) {
+                color = 0xFF6B35; // Orange for control areas
+            } else if (name.includes('TMZ') || name.includes('TRANSponder')) {
+                color = 0xFFD93D; // Yellow for transponder zones
+            } else if (name.includes('RMZ') || name.includes('RADIO')) {
+                color = 0x4ECDC4; // Teal for radio mandatory zones
+            } else if (name.includes('GLIDER') || name.includes('G CLASS')) {
+                color = 0x95E1D3; // Light teal for glider areas
+            } else if (source === 'notam') {
+                color = 0xFFA500; // Orange for NOTAMs
+            } else if (source === 'openair') {
+                color = 0x4A90E2; // Blue for OpenAir airspace
+            } else if (zoneType === 'warning') {
+                color = 0xF5C542; // Amber for general warnings
+            } else {
+                color = 0x6C757D; // Gray for unknown/unclassified
+            }
+            
+            // Create a group for the zone (allows better control of parts)
+            const zoneGroup = new THREE.Group();
+            
+            // Create extruded geometry for the volume
+            const extrudeSettings = {
+                depth: height,
+                bevelEnabled: false
+            };
+            
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            
+            // Main volume material - improved transparency and depth handling
+            const material = new THREE.MeshStandardMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.25, // Slightly more transparent for better see-through
+                side: THREE.DoubleSide,
+                depthWrite: false, // Important for proper transparency stacking
+                depthTest: true,
+                alphaTest: 0.1, // Discard very transparent pixels
+                emissive: color,
+                emissiveIntensity: 0.2 // Subtle glow
+            });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.y = baseHeight;
+            mesh.rotation.x = -Math.PI / 2;
+            zoneGroup.add(mesh);
+            
+            // Add top surface (more visible, slightly brighter)
+            const topMaterial = new THREE.MeshStandardMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.4,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                emissive: color,
+                emissiveIntensity: 0.3
+            });
+            const topGeometry = new THREE.ShapeGeometry(shape);
+            const topMesh = new THREE.Mesh(topGeometry, topMaterial);
+            topMesh.position.y = baseHeight + height;
+            topMesh.rotation.x = -Math.PI / 2;
+            zoneGroup.add(topMesh);
+            
+            // Add bottom surface (ground level)
+            const bottomMaterial = new THREE.MeshStandardMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.2,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                emissive: color,
+                emissiveIntensity: 0.1
+            });
+            const bottomGeometry = new THREE.ShapeGeometry(shape);
+            const bottomMesh = new THREE.Mesh(bottomGeometry, bottomMaterial);
+            bottomMesh.position.y = baseHeight;
+            bottomMesh.rotation.x = -Math.PI / 2;
+            zoneGroup.add(bottomMesh);
+            
+            // Enhanced wireframe outline - more visible edges
+            const edges = new THREE.EdgesGeometry(geometry);
+            const lineMaterial = new THREE.LineBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.9,
+                linewidth: 2
+            });
+            const wireframe = new THREE.LineSegments(edges, lineMaterial);
+            mesh.add(wireframe);
+            
+            // Add top edge outline
+            const topEdges = new THREE.EdgesGeometry(topGeometry);
+            const topLineMaterial = new THREE.LineBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: 1.0,
+                linewidth: 2
+            });
+            const topWireframe = new THREE.LineSegments(topEdges, topLineMaterial);
+            topMesh.add(topWireframe);
+            
+            // Add corner markers for better visibility
+            const cornerGeometry = new THREE.SphereGeometry(0.3, 8, 8);
+            const cornerMaterial = new THREE.MeshBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            // Add corners at top and bottom
+            coordinates.forEach((coord) => {
+                const pos = latLonToCartesian(coord[0], coord[1], 0);
+                // Top corner
+                const topCorner = new THREE.Mesh(cornerGeometry, cornerMaterial);
+                topCorner.position.set(pos.x, baseHeight + height, -pos.z);
+                zoneGroup.add(topCorner);
+                // Bottom corner
+                const bottomCorner = new THREE.Mesh(cornerGeometry, cornerMaterial);
+                bottomCorner.position.set(pos.x, baseHeight, -pos.z);
+                zoneGroup.add(bottomCorner);
+            });
+            
+            return zoneGroup;
+        }
+        
+        // Update zones visualization
+        function updateZonesVisualization() {
+            // Clear existing zones
+            while (zonesGroup.children.length > 0) {
+                const child = zonesGroup.children[0];
+                // Dispose all geometries and materials recursively
+                child.traverse((obj) => {
+                    if (obj.geometry) obj.geometry.dispose();
+                    if (obj.material) {
+                        if (Array.isArray(obj.material)) {
+                            obj.material.forEach(m => m.dispose());
+                        } else {
+                            obj.material.dispose();
+                        }
+                    }
+                });
+                zonesGroup.remove(child);
+            }
+            
+            if (!showZones) {
+                zonesGroup.visible = false;
+                return;
+            }
+            
+            zonesGroup.visible = true;
+            
+            // Collect zones and sort by altitude (lower zones first for better transparency)
+            const zonesArray = [];
+            zonesData.forEach((zone, zoneId) => {
+                if (!zone.enabled) return;
+                zonesArray.push({ zone, zoneId });
+            });
+            
+            // Sort by lower altitude (render lower zones first for better transparency)
+            zonesArray.sort((a, b) => {
+                const altA = a.zone.lower_altitude_ft || 0;
+                const altB = b.zone.lower_altitude_ft || 0;
+                return altA - altB;
+            });
+            
+            // Add zones in sorted order
+            zonesArray.forEach(({ zone, zoneId }) => {
+                const mesh = createZoneMesh(zone);
+                if (mesh) {
+                    mesh.userData = { type: 'zone', zoneId, data: zone };
+                    zonesGroup.add(mesh);
+                }
+            });
+        }
+        
+        // Sort zones by distance from camera for better transparency (call in animation loop)
+        function sortZonesByCamera() {
+            if (!showZones || zonesGroup.children.length === 0) return;
+            
+            const cameraPos = camera.position;
+            const zones = Array.from(zonesGroup.children);
+            
+            // Calculate distance from camera for each zone
+            zones.forEach(zone => {
+                const worldPos = new THREE.Vector3();
+                zone.getWorldPosition(worldPos);
+                zone.userData.distanceToCamera = worldPos.distanceTo(cameraPos);
+            });
+            
+            // Sort by distance (farthest first for proper transparency)
+            zones.sort((a, b) => {
+                return (b.userData.distanceToCamera || 0) - (a.userData.distanceToCamera || 0);
+            });
+            
+            // Re-add in sorted order
+            zones.forEach(zone => {
+                zonesGroup.remove(zone);
+                zonesGroup.add(zone);
+            });
+        }
+        
+        // Load map tiles centered on Ayr
+        function loadMapTiles() {
+            if (!showMap) return;
+            
+            const zoom = 10;
+            const kmPerTile = 39.1;
+            // 1000 nautical miles = 1000 * 1.852 km = 1852 km
+            // At zoom 10, each tile ≈ 39.1 km, so we need ~1852/39.1 ≈ 48 tiles
+            const gridSize = 48; // 48x48 grid = ~1877km coverage (covers 1000nm)
+            
+            const centerTile = latLonToTile(config.centerLat, config.centerLon, zoom);
+            
+            for (let dy = -Math.floor(gridSize / 2); dy <= Math.floor(gridSize / 2); dy++) {
+                for (let dx = -Math.floor(gridSize / 2); dx <= Math.floor(gridSize / 2); dx++) {
+                    const tileX = centerTile.x + dx;
+                    const tileY = centerTile.y + dy;
+                    const tileKey = `${zoom}_${tileX}_${tileY}`;
+                    
+                    if (loadedTiles.has(tileKey)) continue;
+                    
+                    // Calculate tile bounds (exact corners)
+                    const topLeft = tileToLatLon(tileX, tileY, zoom);
+                    const bottomRight = tileToLatLon(tileX + 1, tileY + 1, zoom);
+                    const topRight = tileToLatLon(tileX + 1, tileY, zoom);
+                    const bottomLeft = tileToLatLon(tileX, tileY + 1, zoom);
+                    
+                    // Convert corners to 3D coordinates using flat projection
+                    // This ensures tiles connect edge-to-edge with no gaps
+                    const centerLatRadConfig = config.centerLat * Math.PI / 180;
+                    
+                    const topLeftPos = {
+                        x: earthRadius * Math.cos(centerLatRadConfig) * (topLeft.lon - config.centerLon) * Math.PI / 180,
+                        z: -earthRadius * (topLeft.lat - config.centerLat) * Math.PI / 180
+                    };
+                    const topRightPos = {
+                        x: earthRadius * Math.cos(centerLatRadConfig) * (topRight.lon - config.centerLon) * Math.PI / 180,
+                        z: -earthRadius * (topRight.lat - config.centerLat) * Math.PI / 180
+                    };
+                    const bottomLeftPos = {
+                        x: earthRadius * Math.cos(centerLatRadConfig) * (bottomLeft.lon - config.centerLon) * Math.PI / 180,
+                        z: -earthRadius * (bottomLeft.lat - config.centerLat) * Math.PI / 180
+                    };
+                    const bottomRightPos = {
+                        x: earthRadius * Math.cos(centerLatRadConfig) * (bottomRight.lon - config.centerLon) * Math.PI / 180,
+                        z: -earthRadius * (bottomRight.lat - config.centerLat) * Math.PI / 180
+                    };
+                    
+                    // Calculate exact tile dimensions from corner positions
+                    const width = Math.sqrt(
+                        Math.pow(topRightPos.x - topLeftPos.x, 2) + 
+                        Math.pow(topRightPos.z - topLeftPos.z, 2)
+                    );
+                    const height = Math.sqrt(
+                        Math.pow(bottomLeftPos.x - topLeftPos.x, 2) + 
+                        Math.pow(bottomLeftPos.z - topLeftPos.z, 2)
+                    );
+                    
+                    // Calculate center position from corners (ensures perfect alignment)
+                    const centerX = (topLeftPos.x + topRightPos.x + bottomLeftPos.x + bottomRightPos.x) / 4;
+                    const centerZ = (topLeftPos.z + topRightPos.z + bottomLeftPos.z + bottomRightPos.z) / 4;
+                    const centerY = -0.05; // Slightly below ground level to avoid z-fighting
+                    
+                    const centerPos = new THREE.Vector3(centerX, centerY, centerZ);
+                    
+                    // Load tile texture
+                    const tileUrl = `https://a.basemaps.cartocdn.com/dark_all/${zoom}/${tileX}/${tileY}@2x.png`;
+                    const textureLoader = new THREE.TextureLoader();
+                    textureLoader.setCrossOrigin('anonymous');
+                    
+                    textureLoader.load(
+                        tileUrl,
+                        (texture) => {
+                            texture.minFilter = THREE.LinearFilter;
+                            texture.magFilter = THREE.LinearFilter;
+                            
+                            // Create flat plane for map tile
+                            const geometry = new THREE.PlaneGeometry(width, height);
+                            
+                            // Apply texture to plane
+                            const material = new THREE.MeshBasicMaterial({
+                                map: texture,
+                                transparent: false,
+                                side: THREE.DoubleSide
+                            });
+                            
+                            const mesh = new THREE.Mesh(geometry, material);
+                            
+                            // Position at calculated center (flat grid)
+                            mesh.position.copy(centerPos);
+                            
+                            // All tiles lie flat on the ground plane (no rotation needed)
+                            mesh.rotation.x = -Math.PI / 2; // Rotate to lie flat
+                            
+                            mapGroup.add(mesh);
+                            loadedTiles.set(tileKey, { mesh, texture, geometry, material });
+                            
+                            // Debug: log first tile to verify loading
+                            if (loadedTiles.size === 1) {
+                                console.log('First map tile loaded:', tileKey, 'at', centerPos.x.toFixed(2), centerPos.y.toFixed(2), centerPos.z.toFixed(2));
+                            }
+                        },
+                        undefined,
+                        (error) => {
+                            console.warn(`Failed to load tile ${tileKey}:`, error);
+                        }
+                    );
+                }
+            }
+        }
+        
+        // Tile coordinate conversion functions
+        function latLonToTile(lat, lon, zoom) {
+            const latRad = lat * Math.PI / 180;
+            const n = Math.pow(2, zoom);
+            const x = Math.floor((lon + 180) / 360 * n);
+            const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+            return { x, y, z: zoom };
+        }
+        
+        function tileToLatLon(x, y, zoom) {
+            const n = Math.pow(2, zoom);
+            const lon = x / n * 360 - 180;
+            const latRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)));
+            const lat = latRad * 180 / Math.PI;
+            return { lat, lon };
+        }
+        
+        // Convert lat/lon to 3D coordinates (flat projection for alignment with map tiles)
+        function latLonToCartesian(lat, lon, altitude = 0) {
+            const latRad = lat * Math.PI / 180;
+            const lonRad = lon * Math.PI / 180;
+            const centerLatRad = config.centerLat * Math.PI / 180;
+            const centerLonRad = config.centerLon * Math.PI / 180;
+            
+            // Use flat projection for ground-level objects to match map tiles
+            // For small areas, this approximates: x ≈ earthRadius * cos(centerLat) * (lon - centerLon) * π/180
+            //                                      z ≈ -earthRadius * (lat - centerLat) * π/180
+            const lonDiff = (lonRad - centerLonRad);
+            const latDiff = (latRad - centerLatRad);
+            
+            // Flat projection (matches map tile coordinate system)
+            const x = earthRadius * Math.cos(centerLatRad) * lonDiff;
+            const z = -earthRadius * latDiff; // Negative to match zone coordinate system
+            const y = (altitude - config.floorHeight) * config.altitudeScale / 1000; // Altitude above ground
+            
+            return new THREE.Vector3(x, y, z);
+        }
+        
+        // Detect if aircraft is a helicopter based on type/category
+        function isHelicopter(aircraft) {
+            const type = (aircraft.aircraft_type || '').toString();
+            const category = (aircraft.category || '').toString();
+            const callsign = (aircraft.callsign || '').toUpperCase();
+            
+            // ADSB type codes: helicopters are typically type 1
+            // Category codes: helicopters often have specific categories
+            // Also check callsign patterns (e.g., "H" prefix, "HELI" in name)
+            return type === '1' || 
+                   category.includes('HELICOPTER') || 
+                   category.includes('ROTORCRAFT') ||
+                   callsign.includes('HELI') ||
+                   callsign.startsWith('H') && callsign.length <= 4;
+        }
+        
+        // Create helicopter marker
+        function createHelicopterMarker(aircraft) {
+            const group = new THREE.Group();
+            
+            // Main body/fuselage (more compact than fixed-wing)
+            const bodyGeometry = new THREE.CylinderGeometry(0.12, 0.15, 0.8, 8);
+            const bodyMaterial = new THREE.MeshBasicMaterial({ color: 0x36C3FF });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.rotation.z = Math.PI / 2;
+            group.add(body);
+            
+            // Main rotor (disc)
+            const rotorDiscGeometry = new THREE.CylinderGeometry(1.2, 1.2, 0.02, 16);
+            const rotorDiscMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x4A90E2, 
+                transparent: true, 
+                opacity: 0.3 
+            });
+            const rotorDisc = new THREE.Mesh(rotorDiscGeometry, rotorDiscMaterial);
+            rotorDisc.position.y = 0.5;
+            rotorDisc.rotation.x = Math.PI / 2;
+            group.add(rotorDisc);
+            
+            // Main rotor blades (4 blades)
+            const bladeGeometry = new THREE.BoxGeometry(1.0, 0.02, 0.05);
+            const bladeMaterial = new THREE.MeshBasicMaterial({ color: 0x6B7B8C });
+            for (let i = 0; i < 4; i++) {
+                const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                const angle = (i * Math.PI * 2) / 4;
+                blade.position.set(
+                    Math.cos(angle) * 0.5,
+                    0.5,
+                    Math.sin(angle) * 0.5
+                );
+                blade.rotation.y = angle;
+                group.add(blade);
+            }
+            
+            // Tail boom
+            const tailBoomGeometry = new THREE.CylinderGeometry(0.04, 0.04, 0.6, 6);
+            const tailBoomMaterial = new THREE.MeshBasicMaterial({ color: 0x36C3FF });
+            const tailBoom = new THREE.Mesh(tailBoomGeometry, tailBoomMaterial);
+            tailBoom.position.set(-0.5, 0.1, 0);
+            tailBoom.rotation.z = Math.PI / 2;
+            group.add(tailBoom);
+            
+            // Tail rotor
+            const tailRotorGeometry = new THREE.CylinderGeometry(0.15, 0.15, 0.02, 8);
+            const tailRotorMaterial = new THREE.MeshBasicMaterial({ color: 0x4A90E2 });
+            const tailRotor = new THREE.Mesh(tailRotorGeometry, tailRotorMaterial);
+            tailRotor.position.set(-0.8, 0.1, 0);
+            tailRotor.rotation.x = Math.PI / 2;
+            group.add(tailRotor);
+            
+            // Landing skids
+            const skidGeometry = new THREE.BoxGeometry(0.5, 0.03, 0.03);
+            const skidMaterial = new THREE.MeshBasicMaterial({ color: 0x6B7B8C });
+            const leftSkid = new THREE.Mesh(skidGeometry, skidMaterial);
+            leftSkid.position.set(0, -0.3, 0.2);
+            group.add(leftSkid);
+            const rightSkid = new THREE.Mesh(skidGeometry, skidMaterial);
+            rightSkid.position.set(0, -0.3, -0.2);
+            group.add(rightSkid);
+            
+            const pos = latLonToCartesian(
+                aircraft.lat,
+                aircraft.lon,
+                aircraft.altitude_ft || 0
+            );
+            group.position.copy(pos);
+            
+            // Rotate to point in direction of travel
+            // Track: 0°=North, 90°=East, 180°=South, 270°=West (clockwise from North)
+            // In our coordinate system: +X=East, -X=West, +Z=South, -Z=North
+            // Aircraft model points along +X in local space (after fuselage rotation)
+            // Three.js Y rotation: 0°=+Z(South), 90°=+X(East), 180°=-Z(North), 270°=-X(West)
+            // Mapping: Track 0°(North) → rotation 180°, Track 90°(East) → rotation 90°, etc.
+            if (aircraft.track !== undefined && aircraft.track !== null) {
+                // Convert track (clockwise from North) to rotation (counter-clockwise from +Z)
+                // Formula: rotation = (270 - track) mod 360, then convert to radians
+                let rotationDeg = (270 - aircraft.track) % 360;
+                if (rotationDeg < 0) rotationDeg += 360;
+                group.rotation.y = rotationDeg * (Math.PI / 180);
+            }
+            
+            return group;
+        }
+        
+        // Create fixed-wing aircraft marker (improved model)
+        function createAircraftMarker(aircraft) {
+            const group = new THREE.Group();
+            
+            // Fuselage (main body) - improved proportions
+            const fuselageGeometry = new THREE.CylinderGeometry(0.12, 0.18, 1.8, 10);
+            const fuselageMaterial = new THREE.MeshBasicMaterial({ color: 0x36C3FF });
+            const fuselage = new THREE.Mesh(fuselageGeometry, fuselageMaterial);
+            fuselage.rotation.z = Math.PI / 2;
+            group.add(fuselage);
+            
+            // Main wings (span perpendicular to fuselage)
+            const wingGeometry = new THREE.BoxGeometry(0.25, 0.04, 3.0);
+            const wingMaterial = new THREE.MeshBasicMaterial({ color: 0x4A90E2 });
+            const wings = new THREE.Mesh(wingGeometry, wingMaterial);
+            wings.position.y = 0.08;
+            group.add(wings);
+            
+            // Wing tips (small extensions)
+            const wingTipGeometry = new THREE.BoxGeometry(0.15, 0.03, 0.3);
+            const wingTipMaterial = new THREE.MeshBasicMaterial({ color: 0x5BA3D4 });
+            const leftWingTip = new THREE.Mesh(wingTipGeometry, wingTipMaterial);
+            leftWingTip.position.set(0, 0.08, 1.65);
+            group.add(leftWingTip);
+            const rightWingTip = new THREE.Mesh(wingTipGeometry, wingTipMaterial);
+            rightWingTip.position.set(0, 0.08, -1.65);
+            group.add(rightWingTip);
+            
+            // Horizontal stabilizer (tail wings)
+            const stabilizerGeometry = new THREE.BoxGeometry(0.08, 0.03, 0.8);
+            const stabilizerMaterial = new THREE.MeshBasicMaterial({ color: 0x4A90E2 });
+            const stabilizer = new THREE.Mesh(stabilizerGeometry, stabilizerMaterial);
+            stabilizer.position.set(-0.75, 0.15, 0);
+            group.add(stabilizer);
+            
+            // Vertical stabilizer (tail fin)
+            const tailFinGeometry = new THREE.BoxGeometry(0.08, 0.5, 0.15);
+            const tailFinMaterial = new THREE.MeshBasicMaterial({ color: 0x36C3FF });
+            const tailFin = new THREE.Mesh(tailFinGeometry, tailFinMaterial);
+            tailFin.position.set(-0.75, 0.4, 0);
+            group.add(tailFin);
+            
+            // Nose cone (more streamlined)
+            const noseGeometry = new THREE.ConeGeometry(0.18, 0.4, 10);
+            const noseMaterial = new THREE.MeshBasicMaterial({ color: 0x4A90E2 });
+            const nose = new THREE.Mesh(noseGeometry, noseMaterial);
+            nose.position.set(1.1, 0, 0);
+            nose.rotation.z = -Math.PI / 2;
+            group.add(nose);
+            
+            // Engine nacelles (if large aircraft)
+            const nacelleGeometry = new THREE.CylinderGeometry(0.08, 0.08, 0.3, 8);
+            const nacelleMaterial = new THREE.MeshBasicMaterial({ color: 0x5BA3D4 });
+            const leftNacelle = new THREE.Mesh(nacelleGeometry, nacelleMaterial);
+            leftNacelle.position.set(0.3, 0.08, 1.2);
+            leftNacelle.rotation.z = Math.PI / 2;
+            group.add(leftNacelle);
+            const rightNacelle = new THREE.Mesh(nacelleGeometry, nacelleMaterial);
+            rightNacelle.position.set(0.3, 0.08, -1.2);
+            rightNacelle.rotation.z = Math.PI / 2;
+            group.add(rightNacelle);
+            
+            const pos = latLonToCartesian(
+                aircraft.lat,
+                aircraft.lon,
+                aircraft.altitude_ft || 0
+            );
+            group.position.copy(pos);
+            
+            // Rotate to point in direction of travel
+            // Track: 0°=North, 90°=East, 180°=South, 270°=West (clockwise from North)
+            // In our coordinate system: +X=East, -X=West, +Z=South, -Z=North
+            // Aircraft model points along +X in local space (after fuselage rotation)
+            // Three.js Y rotation: 0°=+Z(South), 90°=+X(East), 180°=-Z(North), 270°=-X(West)
+            // Mapping: Track 0°(North) → rotation 180°, Track 90°(East) → rotation 90°, etc.
+            if (aircraft.track !== undefined && aircraft.track !== null) {
+                // Convert track (clockwise from North) to rotation (counter-clockwise from +Z)
+                // Formula: rotation = (270 - track) mod 360, then convert to radians
+                let rotationDeg = (270 - aircraft.track) % 360;
+                if (rotationDeg < 0) rotationDeg += 360;
+                group.rotation.y = rotationDeg * (Math.PI / 180);
+            }
+            
+            return group;
+        }
+        
+        // Create aircraft marker (wrapper that chooses helicopter or fixed-wing)
+        function createAircraftMarkerWrapper(aircraft) {
+            if (isHelicopter(aircraft)) {
+                return createHelicopterMarker(aircraft);
+            } else {
+                return createAircraftMarker(aircraft);
+            }
+        }
+        
+        // Create trail/path line
+        function createTrail(path, color, opacity = 0.6) {
+            if (!path || path.length < 2) return null;
+            
+            const points = path.map(p => latLonToCartesian(p.lat, p.lon, p.altitude || 0));
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: opacity,
+                linewidth: 2
+            });
+            return new THREE.Line(geometry, material);
+        }
+        
+        // Create drone marker
+        function createDroneMarker(drone) {
+            const geometry = new THREE.OctahedronGeometry(0.3);
+            const material = new THREE.MeshBasicMaterial({ color: 0xF5C542 });
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            const pos = latLonToCartesian(
+                drone.drone_lat || drone.pilot_lat,
+                drone.drone_lon || drone.pilot_lon,
+                drone.drone_altitude || 0
+            );
+            mesh.position.copy(pos);
+            
+            return mesh;
+        }
+        
+        // Create AIS vessel marker
+        function createAISMarker(vessel) {
+            const geometry = new THREE.BoxGeometry(0.4, 0.2, 1.0);
+            const material = new THREE.MeshBasicMaterial({ color: 0x45D98C });
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            const pos = latLonToCartesian(vessel.lat, vessel.lon, 0);
+            mesh.position.copy(pos);
+            
+            if (vessel.course !== undefined && vessel.course !== null) {
+                mesh.rotation.y = (180 - vessel.course) * (Math.PI / 180);
+            }
+            
+            return mesh;
+        }
+        
+        // Update path trails
+        function updatePathTrails() {
+            // Clear existing trails
+            while (pathGroups.children.length > 0) {
+                const child = pathGroups.children[0];
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+                pathGroups.remove(child);
+            }
+            
+            // Add aircraft trails
+            aircraftPaths.forEach((path, hex) => {
+                if (path.length >= 2) {
+                    const trail = createTrail(path, 0x36C3FF, 0.5);
+                    if (trail) {
+                        trail.userData = { type: 'adsb_trail', hex };
+                        pathGroups.add(trail);
+                    }
+                }
+            });
+            
+            // Add drone trails
+            dronePaths.forEach((path, mac) => {
+                if (path.length >= 2) {
+                    const trail = createTrail(path, 0xF5C542, 0.4);
+                    if (trail) {
+                        trail.userData = { type: 'drone_trail', mac };
+                        pathGroups.add(trail);
+                    }
+                }
+            });
+            
+            // Add AIS vessel trails
+            aisPaths.forEach((path, mmsi) => {
+                if (path.length >= 2) {
+                    const trail = createTrail(path, 0x45D98C, 0.4);
+                    if (trail) {
+                        trail.userData = { type: 'ais_trail', mmsi };
+                        pathGroups.add(trail);
+                    }
+                }
+            });
+        }
+        
+        // Update visuals
+        function updateVisuals() {
+            // Clear existing markers
+            while (aircraftGroup.children.length > 0) {
+                const child = aircraftGroup.children[0];
+                if (child.children) {
+                    child.children.forEach(c => {
+                        if (c.geometry) c.geometry.dispose();
+                        if (c.material) c.material.dispose();
+                    });
+                }
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+                aircraftGroup.remove(child);
+            }
+            
+            while (droneGroup.children.length > 0) {
+                const child = droneGroup.children[0];
+                child.geometry.dispose();
+                child.material.dispose();
+                droneGroup.remove(child);
+            }
+            
+            while (aisGroup.children.length > 0) {
+                const child = aisGroup.children[0];
+                child.geometry.dispose();
+                child.material.dispose();
+                aisGroup.remove(child);
+            }
+            
+            // Add ADSB aircraft (if visible)
+            if (showADSB) {
+                aircraftData.forEach((aircraft, hex) => {
+                    const marker = createAircraftMarkerWrapper(aircraft);
+                    marker.userData = { type: 'adsb', hex, data: aircraft };
+                    aircraftGroup.add(marker);
+                    
+                    // Update path
+                    if (!aircraftPaths.has(hex)) {
+                        aircraftPaths.set(hex, []);
+                    }
+                    const path = aircraftPaths.get(hex);
+                    const newPoint = {
+                        lat: aircraft.lat,
+                        lon: aircraft.lon,
+                        altitude: aircraft.altitude_ft || 0
+                    };
+                    // Add point if different from last
+                    if (path.length === 0 || 
+                        path[path.length - 1].lat !== newPoint.lat || 
+                        path[path.length - 1].lon !== newPoint.lon) {
+                        path.push(newPoint);
+                        // Keep last 100 points
+                        if (path.length > 100) {
+                            path.shift();
+                        }
+                    }
+                });
+            }
+            aircraftGroup.visible = showADSB;
+            
+            // Add drones (if visible)
+            if (showDrones) {
+                droneData.forEach((drone, mac) => {
+                    if (drone.drone_lat && drone.drone_lon) {
+                        const marker = createDroneMarker(drone);
+                        marker.userData = { type: 'drone', mac, data: drone };
+                        droneGroup.add(marker);
+                        
+                        // Update path
+                        if (!dronePaths.has(mac)) {
+                            dronePaths.set(mac, []);
+                        }
+                        const path = dronePaths.get(mac);
+                        const newPoint = {
+                            lat: drone.drone_lat,
+                            lon: drone.drone_lon,
+                            altitude: drone.drone_altitude || 0
+                        };
+                        if (path.length === 0 || 
+                            path[path.length - 1].lat !== newPoint.lat || 
+                            path[path.length - 1].lon !== newPoint.lon) {
+                            path.push(newPoint);
+                            if (path.length > 50) {
+                                path.shift();
+                            }
+                        }
+                    }
+                });
+            }
+            droneGroup.visible = showDrones;
+            
+            // Add AIS vessels (if visible)
+            if (showAIS) {
+                aisData.forEach((vessel, mmsi) => {
+                    const marker = createAISMarker(vessel);
+                    marker.userData = { type: 'ais', mmsi, data: vessel };
+                    aisGroup.add(marker);
+                    
+                    // Update path
+                    if (!aisPaths.has(mmsi)) {
+                        aisPaths.set(mmsi, []);
+                    }
+                    const path = aisPaths.get(mmsi);
+                    const newPoint = {
+                        lat: vessel.lat,
+                        lon: vessel.lon,
+                        altitude: 0
+                    };
+                    if (path.length === 0 || 
+                        path[path.length - 1].lat !== newPoint.lat || 
+                        path[path.length - 1].lon !== newPoint.lon) {
+                        path.push(newPoint);
+                        if (path.length > 50) {
+                            path.shift();
+                        }
+                    }
+                });
+            }
+            aisGroup.visible = showAIS;
+            
+            // Update map visibility
+            mapGroup.visible = showMap;
+            
+            // Update zones visualization
+            updateZonesVisualization();
+            
+            // Update trails
+            updatePathTrails();
+            
+            // Update stats
+            document.getElementById('adsb-count').textContent = aircraftData.size;
+            document.getElementById('drone-count').textContent = droneData.size;
+            document.getElementById('ais-count').textContent = aisData.size;
+            document.getElementById('zones-count').textContent = zonesData.size;
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            
+            // Update aircraft and ships lists
+            updateAircraftList3D();
+            updateShipsList3D();
+        }
+        
+        // Update aircraft list in 3D view
+        function updateAircraftList3D() {
+            const listContainer = document.getElementById('aircraft-list-3d');
+            if (!listContainer) return;
+            
+            listContainer.innerHTML = '';
+            
+            if (aircraftData.size === 0) {
+                listContainer.innerHTML = '<div style="color: #9DA3AD; font-size: 11px; padding: 8px; text-align: center;">No aircraft</div>';
+                return;
+            }
+            
+            aircraftData.forEach((aircraft, hex) => {
+                const callsign = aircraft.callsign || aircraft.registration || hex;
+                const altitude = aircraft.altitude_ft || aircraft.altitude_baro || 'Unknown';
+                const speed = aircraft.speed_kts ? aircraft.speed_kts.toFixed(0) + ' kts' : 'Unknown';
+                
+                const item = document.createElement('div');
+                item.style.cssText = 'padding: 8px; background: rgba(54, 195, 255, 0.1); border: 1px solid #36C3FF; border-radius: 4px; cursor: pointer; transition: background 0.2s;';
+                item.innerHTML = `
+                    <div style="font-weight: 600; color: #36C3FF; font-size: 12px; margin-bottom: 4px;">${callsign}</div>
+                    <div style="font-size: 10px; color: #9DA3AD;">
+                        Alt: ${altitude} ft | ${speed}
+                    </div>
+                `;
+                
+                item.addEventListener('mouseenter', () => {
+                    item.style.background = 'rgba(54, 195, 255, 0.2)';
+                });
+                item.addEventListener('mouseleave', () => {
+                    item.style.background = 'rgba(54, 195, 255, 0.1)';
+                });
+                
+                item.addEventListener('click', () => {
+                    // Focus camera on aircraft
+                    if (aircraft.lat && aircraft.lon) {
+                        const pos = latLonToCartesian(aircraft.lat, aircraft.lon, aircraft.altitude_ft || 0);
+                        camera.position.set(pos.x + 5, pos.y + 5, pos.z + 5);
+                        controls.target.copy(pos);
+                        controls.update();
+                    }
+                });
+                
+                listContainer.appendChild(item);
+            });
+        }
+        
+        // Update ships list in 3D view
+        function updateShipsList3D() {
+            const listContainer = document.getElementById('ships-list-3d');
+            if (!listContainer) return;
+            
+            listContainer.innerHTML = '';
+            
+            if (aisData.size === 0) {
+                listContainer.innerHTML = '<div style="color: #9DA3AD; font-size: 11px; padding: 8px; text-align: center;">No ships</div>';
+                return;
+            }
+            
+            aisData.forEach((vessel, mmsi) => {
+                const name = vessel.name || `Vessel ${mmsi}`;
+                const speed = vessel.speed !== undefined ? vessel.speed.toFixed(1) + ' kts' : 'Unknown';
+                const vesselType = vessel.vessel_type || 'Unknown';
+                
+                const item = document.createElement('div');
+                item.style.cssText = 'padding: 8px; background: rgba(69, 217, 140, 0.1); border: 1px solid #45D98C; border-radius: 4px; cursor: pointer; transition: background 0.2s;';
+                item.innerHTML = `
+                    <div style="font-weight: 600; color: #45D98C; font-size: 12px; margin-bottom: 4px;">${name}</div>
+                    <div style="font-size: 10px; color: #9DA3AD;">
+                        ${vesselType} | ${speed}
+                    </div>
+                `;
+                
+                item.addEventListener('mouseenter', () => {
+                    item.style.background = 'rgba(69, 217, 140, 0.2)';
+                });
+                item.addEventListener('mouseleave', () => {
+                    item.style.background = 'rgba(69, 217, 140, 0.1)';
+                });
+                
+                item.addEventListener('click', () => {
+                    // Focus camera on ship
+                    if (vessel.lat && vessel.lon) {
+                        const pos = latLonToCartesian(vessel.lat, vessel.lon, 0);
+                        camera.position.set(pos.x + 5, pos.y + 5, pos.z + 5);
+                        controls.target.copy(pos);
+                        controls.update();
+                    }
+                });
+                
+                listContainer.appendChild(item);
+            });
+        }
+        
+        // WebSocket event handlers
+        socket.on('connect', () => {
+            console.log('Connected to mesh-mapper WebSocket');
+            document.getElementById('adsb-status').textContent = 'Connected';
+            document.getElementById('adsb-status').style.color = '#45D98C';
+        });
+        
+        socket.on('adsb_aircraft', (data) => {
+            const aircraft = data.aircraft || [];
+            aircraftData.clear();
+            aircraft.forEach(ac => {
+                if (ac.hex && ac.lat && ac.lon) {
+                    aircraftData.set(ac.hex, ac);
+                }
+            });
+            updateVisuals();
+        });
+        
+        socket.on('detections', (data) => {
+            droneData.clear();
+            Object.entries(data).forEach(([mac, detection]) => {
+                if (detection && (detection.drone_lat || detection.pilot_lat)) {
+                    droneData.set(mac, detection);
+                }
+            });
+            updateVisuals();
+        });
+        
+        socket.on('ais_vessels', (data) => {
+            const vessels = data.vessels || [];
+            aisData.clear();
+            vessels.forEach(vessel => {
+                if (vessel.mmsi && vessel.lat && vessel.lon) {
+                    aisData.set(vessel.mmsi, vessel);
+                }
+            });
+            updateVisuals();
+        });
+        
+        socket.on('zones_updated', (data) => {
+            const zones = data.zones || [];
+            zonesData.clear();
+            zones.forEach(zone => {
+                if (zone.id && zone.coordinates) {
+                    zonesData.set(zone.id, zone);
+                }
+            });
+            updateVisuals();
+        });
+        
+        // Load initial data via REST API
+        async function loadInitialData() {
+            try {
+                // Load ADSB aircraft
+                const adsbResponse = await fetch('/api/adsb_aircraft');
+                if (adsbResponse.ok) {
+                    const adsbData = await adsbResponse.json();
+                    if (adsbData.aircraft) {
+                        adsbData.aircraft.forEach(ac => {
+                            if (ac.hex && ac.lat && ac.lon) {
+                                aircraftData.set(ac.hex, ac);
+                            }
+                        });
+                    }
+                }
+                
+                // Load drones
+                const droneResponse = await fetch('/api/detections');
+                if (droneResponse.ok) {
+                    const droneDataObj = await droneResponse.json();
+                    Object.entries(droneDataObj).forEach(([mac, detection]) => {
+                        if (detection && (detection.drone_lat || detection.pilot_lat)) {
+                            droneData.set(mac, detection);
+                        }
+                    });
+                }
+                
+                // Load AIS vessels
+                const aisResponse = await fetch('/api/ais_vessels');
+                if (aisResponse.ok) {
+                    const aisDataObj = await aisResponse.json();
+                    if (aisDataObj.vessels) {
+                        aisDataObj.vessels.forEach(vessel => {
+                            if (vessel.mmsi && vessel.lat && vessel.lon) {
+                                aisData.set(vessel.mmsi, vessel);
+                            }
+                        });
+                    }
+                }
+                
+                // Load zones
+                const zonesResponse = await fetch('/api/zones');
+                if (zonesResponse.ok) {
+                    const zonesDataObj = await zonesResponse.json();
+                    if (zonesDataObj.zones) {
+                        zonesDataObj.zones.forEach(zone => {
+                            if (zone.id && zone.coordinates) {
+                                zonesData.set(zone.id, zone);
+                            }
+                        });
+                    }
+                }
+                
+                updateVisuals();
+            } catch (error) {
+                console.error('Error loading initial data:', error);
+            }
+        }
+        
+        // Create or update aircraft label
+        function updateAircraftLabel(aircraft, hex) {
+            let label = aircraftLabels.get(hex);
+            
+            if (!label) {
+                label = document.createElement('div');
+                label.className = 'aircraft-label';
+                label.style.cssText = `
+                    position: absolute;
+                    background: rgba(15, 18, 21, 0.95);
+                    border: 2px solid #36C3FF;
+                    border-radius: 6px;
+                    padding: 10px 12px;
+                    color: #D6DAE0;
+                    font-family: 'Courier New', monospace;
+                    font-size: 12px;
+                    pointer-events: none;
+                    z-index: 1000;
+                    min-width: 200px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+                `;
+                document.body.appendChild(label);
+                aircraftLabels.set(hex, label);
+            }
+            
+            // Update label content
+            const callsign = aircraft.callsign || aircraft.registration || hex;
+            const altitude = aircraft.altitude_ft || aircraft.altitude_baro || 'Unknown';
+            const speed = aircraft.speed_kts ? `${aircraft.speed_kts.toFixed(0)} kts` : 'Unknown';
+            const track = aircraft.track !== undefined && aircraft.track !== null ? `${aircraft.track.toFixed(0)}°` : 'Unknown';
+            const type = aircraft.aircraft_type || 'Unknown';
+            const category = aircraft.category || '';
+            const squawk = aircraft.squawk || 'N/A';
+            
+            label.innerHTML = `
+                <div style="font-weight: 700; color: #36C3FF; margin-bottom: 6px; font-size: 13px;">${callsign}</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 11px;">
+                    <div><span style="color: #9DA3AD;">Hex:</span> ${hex}</div>
+                    <div><span style="color: #9DA3AD;">Alt:</span> ${altitude} ft</div>
+                    <div><span style="color: #9DA3AD;">Speed:</span> ${speed}</div>
+                    <div><span style="color: #9DA3AD;">Track:</span> ${track}</div>
+                    <div><span style="color: #9DA3AD;">Type:</span> ${type}</div>
+                    <div><span style="color: #9DA3AD;">Squawk:</span> ${squawk}</div>
+                </div>
+                ${category ? `<div style="margin-top: 4px; font-size: 10px; color: #9DA3AD;">${category}</div>` : ''}
+            `;
+            
+            // Position label near aircraft
+            const aircraftMesh = Array.from(aircraftGroup.children).find(child => 
+                child.userData && child.userData.hex === hex
+            );
+            
+            if (aircraftMesh) {
+                const worldPosition = new THREE.Vector3();
+                aircraftMesh.getWorldPosition(worldPosition);
+                worldPosition.y += 2; // Offset above aircraft
+                
+                const screenPosition = worldPosition.project(camera);
+                const x = (screenPosition.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-screenPosition.y * 0.5 + 0.5) * window.innerHeight;
+                
+                label.style.left = `${x}px`;
+                label.style.top = `${y}px`;
+                label.style.transform = 'translate(-50%, -100%)';
+                label.style.display = selectedAircraft.has(hex) ? 'block' : 'none';
+            }
+        }
+        
+        // Toggle aircraft label visibility
+        function toggleAircraftLabel(hex) {
+            if (selectedAircraft.has(hex)) {
+                selectedAircraft.delete(hex);
+            } else {
+                selectedAircraft.add(hex);
+            }
+            // Update all labels
+            selectedAircraft.forEach(h => {
+                const aircraft = aircraftData.get(h);
+                if (aircraft) {
+                    updateAircraftLabel(aircraft, h);
+                }
+            });
+            // Hide labels that are no longer selected
+            aircraftLabels.forEach((label, h) => {
+                if (!selectedAircraft.has(h)) {
+                    label.style.display = 'none';
+                }
+            });
+        }
+        
+        // Handle mouse click on aircraft
+        function onMouseClick(event) {
+            event.preventDefault();
+            
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Get all aircraft meshes
+            const aircraftMeshes = [];
+            aircraftGroup.children.forEach(child => {
+                if (child.userData && child.userData.type === 'adsb') {
+                    // Check all children of the aircraft group
+                    child.traverse((obj) => {
+                        if (obj.isMesh && obj.visible) {
+                            aircraftMeshes.push(obj);
+                        }
+                    });
+                }
+            });
+            
+            const intersects = raycaster.intersectObjects(aircraftMeshes, true);
+            
+            if (intersects.length > 0) {
+                // Find the parent aircraft group
+                let aircraftGroup = intersects[0].object;
+                while (aircraftGroup && (!aircraftGroup.userData || !aircraftGroup.userData.hex)) {
+                    aircraftGroup = aircraftGroup.parent;
+                }
+                
+                if (aircraftGroup && aircraftGroup.userData && aircraftGroup.userData.hex) {
+                    const hex = aircraftGroup.userData.hex;
+                    const aircraft = aircraftData.get(hex);
+                    if (aircraft) {
+                        toggleAircraftLabel(hex);
+                        updateAircraftLabel(aircraft, hex);
+                    }
+                }
+            }
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            
+            // Sort zones by camera distance periodically for better transparency
+            if (showZones && zonesGroup.children.length > 0) {
+                // Only sort every 10 frames to avoid performance issues
+                if (!window.zoneSortCounter) window.zoneSortCounter = 0;
+                window.zoneSortCounter++;
+                if (window.zoneSortCounter >= 10) {
+                    sortZonesByCamera();
+                    window.zoneSortCounter = 0;
+                }
+            }
+            
+            renderer.render(scene, camera);
+            
+            // Update label positions
+            selectedAircraft.forEach(hex => {
+                const aircraft = aircraftData.get(hex);
+                if (aircraft) {
+                    updateAircraftLabel(aircraft, hex);
+                }
+            });
+        }
+        
+        // Menu toggle
+        document.getElementById('menu-toggle').addEventListener('click', () => {
+            document.getElementById('menu-panel').classList.toggle('open');
+        });
+        
+        // Reset camera
+        document.getElementById('reset-camera').addEventListener('click', () => {
+            camera.position.set(0, 50, 100);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        });
+        
+        // Toggle to 2D View
+        document.getElementById('toggle2DViewButton').addEventListener('click', () => {
+            window.location.href = '/';
+        });
+        
+        // Layer visibility toggles
+        document.getElementById('toggle-adsb').addEventListener('change', (e) => {
+            showADSB = e.target.checked;
+            aircraftGroup.visible = showADSB;
+            updateVisuals();
+        });
+        
+        document.getElementById('toggle-drones').addEventListener('change', (e) => {
+            showDrones = e.target.checked;
+            droneGroup.visible = showDrones;
+            updateVisuals();
+        });
+        
+        document.getElementById('toggle-ais').addEventListener('change', (e) => {
+            showAIS = e.target.checked;
+            aisGroup.visible = showAIS;
+            updateVisuals();
+        });
+        
+        document.getElementById('toggle-map').addEventListener('change', (e) => {
+            showMap = e.target.checked;
+            mapGroup.visible = showMap;
+        });
+        
+        document.getElementById('toggle-zones').addEventListener('change', (e) => {
+            showZones = e.target.checked;
+            zonesGroup.visible = showZones;
+            updateZonesVisualization();
+        });
+        
+        document.getElementById('toggle-airspace').addEventListener('change', (e) => {
+            showAirspace = e.target.checked;
+            airspaceGroup.visible = showAirspace;
+        });
+        
+        // Update ADSB button
+        document.getElementById('update-adsb').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/adsb_update', { method: 'POST' });
+                const data = await response.json();
+                console.log('ADSB update triggered:', data);
+            } catch (error) {
+                console.error('Error updating ADSB:', error);
+            }
+        });
+        
+        // Load ADSB settings
+        async function loadADSBettings() {
+            try {
+                const response = await fetch('/api/adsb_settings');
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    document.getElementById('adsb-radius').textContent = `${data.radius_km || 100} km`;
+                }
+            } catch (error) {
+                console.error('Error loading ADSB settings:', error);
+            }
+        }
+        
+        // Window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Initialize
+        initScene();
+        
+        // Add click event listener for aircraft selection (after renderer is created)
+        if (renderer && renderer.domElement) {
+            renderer.domElement.addEventListener('click', onMouseClick);
+        }
+        
+        loadInitialData();
+        loadADSBettings();
+        document.getElementById('loading').style.display = 'none';
+        animate();
+    </script>
+    
+    <!-- Socket.IO client -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</body>
+</html>
+
