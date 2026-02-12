@@ -187,8 +187,9 @@ class MQTTPublisher:
             self.is_connected = False
             logger.error(f"MQTT Publisher Failed to connect, return code {rc}")
 
-    def _on_disconnect(self, client, userdata, rc, properties=None):
+    def _on_disconnect(self, client, userdata, *args):
         self.is_connected = False
+        rc = args[0] if args else 0
         if rc != 0:
             logger.warning(f"MQTT Publisher disconnected unexpectedly. Attempting reconnect (RC: {rc})...")
             # The client's loop_start/loop_forever handles re-connection internally
@@ -1008,7 +1009,9 @@ def process_ais_message(ais_data):
             return  # Invalid position
 
         # Update or create vessel entry
+        is_new_vessel = False
         with AIS_VESSELS_LOCK:
+            is_new_vessel = mmsi not in AIS_VESSELS
             vessel = AIS_VESSELS.get(mmsi, {})
             vessel.update({
                 'mmsi': mmsi,
@@ -1046,9 +1049,29 @@ def process_ais_message(ais_data):
         except Exception as e:
             logger.debug(f"Error emitting AIS vessel update: {e}")
 
-        # Alert engine: publish vessel event
+        # Alert engine: publish vessel events
         if event_bus:
             try:
+                vessel_event_data = {
+                    "mmsi": mmsi,
+                    "name": vessel.get("name", ""),
+                    "speed": speed, "speed_kts": speed,
+                    "course": course, "heading": heading,
+                    "vessel_type": vessel.get("vessel_type", ""),
+                    "is_new": is_new_vessel,
+                }
+                # Publish detected event for new vessels
+                if is_new_vessel:
+                    event_bus.publish({
+                        "event_type": "vessel.detected",
+                        "source": "ais",
+                        "timestamp": time.time(),
+                        "object_id": mmsi,
+                        "object_type": "vessel",
+                        "location": {"lat": lat, "lon": lon},
+                        "data": vessel_event_data,
+                    })
+                # Always publish updated event
                 event_bus.publish({
                     "event_type": "vessel.updated",
                     "source": "ais",
@@ -1056,13 +1079,7 @@ def process_ais_message(ais_data):
                     "object_id": mmsi,
                     "object_type": "vessel",
                     "location": {"lat": lat, "lon": lon},
-                    "data": {
-                        "mmsi": mmsi,
-                        "name": vessel.get("name", ""),
-                        "speed": speed, "speed_kts": speed,
-                        "course": course, "heading": heading,
-                        "vessel_type": vessel.get("vessel_type", ""),
-                    },
+                    "data": vessel_event_data,
                 })
             except Exception:
                 pass
@@ -1980,25 +1997,65 @@ def update_adsb_data():
                     lon = ac.get("lon", 0)
                     if not lat or not lon:
                         continue
+
+                    ac_data = {
+                        "callsign": ac.get("callsign", ""),
+                        "squawk": ac.get("squawk", ""),
+                        "speed_kts": ac.get("speed_kts", 0),
+                        "track": ac.get("track", 0),
+                        "vertical_rate": ac.get("vertical_rate", 0),
+                        "category": ac.get("category", ""),
+                        "altitude_ft": ac.get("altitude_ft", ac.get("altitude_baro", 0)),
+                    }
+                    ac_location = {
+                        "lat": lat, "lon": lon,
+                        "alt": ac.get("altitude_ft", ac.get("altitude_baro", 0)),
+                    }
+
+                    # Check if this is a new aircraft (not in previous ADSB_AIRCRAFT)
+                    with ADSB_AIRCRAFT_LOCK:
+                        prev_ac = ADSB_AIRCRAFT.get(hex_code)
+
+                    is_new_aircraft = prev_ac is None
+                    if is_new_aircraft:
+                        ac_data["is_new"] = True
+                        event_bus.publish({
+                            "event_type": "aircraft.detected",
+                            "source": "adsb",
+                            "timestamp": time.time(),
+                            "object_id": hex_code,
+                            "object_type": "aircraft",
+                            "location": ac_location,
+                            "data": ac_data,
+                        })
+
+                    # Check for squawk changes (emergency squawks especially)
+                    if prev_ac:
+                        old_squawk = prev_ac.get("squawk", "")
+                        new_squawk = ac.get("squawk", "")
+                        if new_squawk and new_squawk != old_squawk:
+                            squawk_data = dict(ac_data)
+                            squawk_data["old_squawk"] = old_squawk
+                            squawk_data["new_squawk"] = new_squawk
+                            event_bus.publish({
+                                "event_type": "aircraft.squawk_change",
+                                "source": "adsb",
+                                "timestamp": time.time(),
+                                "object_id": hex_code,
+                                "object_type": "aircraft",
+                                "location": ac_location,
+                                "data": squawk_data,
+                            })
+
+                    # Always publish updated event
                     event_bus.publish({
                         "event_type": "aircraft.updated",
                         "source": "adsb",
                         "timestamp": time.time(),
                         "object_id": hex_code,
                         "object_type": "aircraft",
-                        "location": {
-                            "lat": lat, "lon": lon,
-                            "alt": ac.get("altitude_ft", ac.get("altitude_baro", 0)),
-                        },
-                        "data": {
-                            "callsign": ac.get("callsign", ""),
-                            "squawk": ac.get("squawk", ""),
-                            "speed_kts": ac.get("speed_kts", 0),
-                            "track": ac.get("track", 0),
-                            "vertical_rate": ac.get("vertical_rate", 0),
-                            "category": ac.get("category", ""),
-                            "altitude_ft": ac.get("altitude_ft", ac.get("altitude_baro", 0)),
-                        },
+                        "location": ac_location,
+                        "data": ac_data,
                     })
             except Exception as e:
                 logger.debug(f"Alert engine ADSB event error: {e}")
@@ -13821,6 +13878,83 @@ def api_alert_flows_list():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def _validate_flow(flow_def):
+    """Validate a flow definition before saving.
+    
+    Returns a list of error strings (empty = valid).
+    """
+    errors = []
+    nodes = flow_def.get("nodes", [])
+    edges = flow_def.get("edges", [])
+
+    if not nodes:
+        errors.append("Flow must contain at least one node")
+        return errors
+
+    # Check for trigger and action nodes
+    trigger_nodes = [n for n in nodes if n.get("type") == "trigger"]
+    action_nodes = [n for n in nodes if n.get("type") == "action"]
+    condition_nodes = [n for n in nodes if n.get("type") == "condition"]
+
+    if not trigger_nodes:
+        errors.append("Flow must contain at least one trigger node")
+    if not action_nodes:
+        errors.append("Flow must contain at least one action node")
+
+    if errors:
+        return errors
+
+    # Validate connections
+    node_ids = {n.get("id") for n in nodes}
+    node_type_map = {n.get("id"): n.get("type") for n in nodes}
+
+    for edge in edges:
+        from_id = edge.get("from")
+        to_id = edge.get("to")
+
+        if from_id not in node_ids:
+            errors.append(f"Edge references unknown source node: {from_id}")
+            continue
+        if to_id not in node_ids:
+            errors.append(f"Edge references unknown target node: {to_id}")
+            continue
+
+        from_type = node_type_map.get(from_id)
+        to_type = node_type_map.get(to_id)
+
+        # Valid connections: trigger→condition, trigger→action, condition→action, condition→condition
+        valid_connections = {
+            ("trigger", "condition"), ("trigger", "action"),
+            ("condition", "action"), ("condition", "condition"),
+        }
+        if (from_type, to_type) not in valid_connections:
+            errors.append(
+                f"Invalid connection: {from_type} → {to_type} "
+                f"(from {from_id} to {to_id}). "
+                f"Allowed: trigger→condition, trigger→action, condition→action, condition→condition"
+            )
+
+    # Check that action nodes are reachable from at least one trigger
+    adj = {}
+    for edge in edges:
+        adj.setdefault(edge.get("from"), []).append(edge.get("to"))
+
+    reachable = set()
+    def _walk(node_id):
+        for next_id in adj.get(node_id, []):
+            if next_id not in reachable:
+                reachable.add(next_id)
+                _walk(next_id)
+
+    for t in trigger_nodes:
+        _walk(t.get("id"))
+
+    unreachable_actions = [n.get("id") for n in action_nodes if n.get("id") not in reachable]
+    if unreachable_actions:
+        errors.append(f"Action nodes not connected to any trigger: {', '.join(unreachable_actions)}")
+
+    return errors
+
 @app.route('/api/alerts/flows', methods=['POST'])
 def api_alert_flow_create():
     """Create a new alert flow."""
@@ -13844,6 +13978,11 @@ def api_alert_flow_create():
                 return jsonify({"error": f"Template '{template_id}' not found"}), 404
         else:
             flow_def = data
+
+        # Validate flow before saving
+        validation_errors = _validate_flow(flow_def)
+        if validation_errors:
+            return jsonify({"error": "Flow validation failed", "validation_errors": validation_errors}), 400
 
         flow = alert_storage.create_flow(flow_def)
         alert_engine.reload_flows()
@@ -13873,6 +14012,21 @@ def api_alert_flow_update(flow_id):
         data = request.get_json()
         if not data:
             return jsonify({"error": "Missing JSON body"}), 400
+
+        # If nodes or edges are being updated, validate the resulting flow
+        if "nodes" in data or "edges" in data:
+            existing = alert_storage.get_flow(flow_id)
+            if not existing:
+                return jsonify({"error": "Flow not found"}), 404
+            # Merge existing with updates for validation
+            validate_def = {
+                "nodes": data.get("nodes", existing.get("nodes", [])),
+                "edges": data.get("edges", existing.get("edges", [])),
+            }
+            validation_errors = _validate_flow(validate_def)
+            if validation_errors:
+                return jsonify({"error": "Flow validation failed", "validation_errors": validation_errors}), 400
+
         flow = alert_storage.update_flow(flow_id, data)
         if not flow:
             return jsonify({"error": "Flow not found"}), 404
@@ -15079,6 +15233,39 @@ def ble_event_callback(event_type, device_data):
             mqtt_publisher.publish_ble_tracker(mac, device_data)
         except Exception:
             pass
+
+    # Alert engine: publish BLE events
+    if event_bus:
+        try:
+            is_new_device = device_data.get('advert_count', 0) == 1
+            ble_event_type = "ble.detected" if is_new_device else "ble.updated"
+            # Override for drone BLE detections
+            if event_type == 'ble_drone':
+                ble_event_type = "drone.detected" if is_new_device else "drone.updated"
+
+            ble_loc = {}
+            if device_data.get('station_lat') and device_data.get('station_lon'):
+                ble_loc = {"lat": device_data['station_lat'], "lon": device_data['station_lon']}
+
+            event_bus.publish({
+                "event_type": ble_event_type,
+                "source": "ble_radar",
+                "timestamp": time.time(),
+                "object_id": mac,
+                "object_type": "drone" if event_type == 'ble_drone' else "ble_device",
+                "location": ble_loc,
+                "data": {
+                    "mac": mac,
+                    "rssi": device_data.get('rssi', 0),
+                    "category": category,
+                    "is_new": is_new_device,
+                    "basic_id": device_data.get('basic_id', ''),
+                    "alias": device_data.get('alias', ''),
+                    "manufacturer": device_data.get('manufacturer', ''),
+                },
+            })
+        except Exception as e:
+            logger.debug(f"Alert engine BLE event error: {e}")
 
 
 # --- GPS callback ---

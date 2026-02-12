@@ -1356,6 +1356,31 @@ class RuleEngine:
             except Exception as e:
                 logger.error(f"Error logging alert: {e}")
 
+            # Always emit via SocketIO so the dashboard updates live,
+            # even if no ui_alert action is in the flow
+            has_ui_alert = "ui_alert" in actions_executed
+            if self.socketio and not has_ui_alert:
+                try:
+                    self.socketio.emit("alert_fired", {
+                        "id": f"alert_{int(time.time() * 1000)}",
+                        "flow_id": flow.get("id", ""),
+                        "flow_name": flow.get("name", ""),
+                        "severity": flow.get("severity", "warning"),
+                        "title": title,
+                        "message": message,
+                        "event_type": event.get("event_type", ""),
+                        "object_id": event.get("object_id", ""),
+                        "object_type": event.get("object_type", ""),
+                        "lat": loc.get("lat"),
+                        "lon": loc.get("lon"),
+                        "alt": loc.get("alt"),
+                        "timestamp": ctx.get("timestamp", ""),
+                        "sound": "default",
+                        "acknowledged": False,
+                    })
+                except Exception as e:
+                    logger.debug(f"SocketIO alert emit error: {e}")
+
             logger.info(
                 f"🔔 Alert fired: [{flow.get('severity', 'info').upper()}] "
                 f"{title} — {', '.join(actions_executed)}"
