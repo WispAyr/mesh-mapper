@@ -107,6 +107,20 @@
                     <span class="layer-name">Webcams</span>
                     <span class="layer-count" id="count-webcams">0</span>
                 </label>
+                <label class="layer-toggle" data-layer="ble">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#00aaff"></span>
+                    <span class="layer-icon">📶</span>
+                    <span class="layer-name">BLE Radar</span>
+                    <span class="layer-count" id="count-ble">0</span>
+                </label>
+            </div>
+            <hr class="divider">
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="ble-stats"><span>📶 BLE Radar</span><span class="toggle-arrow">▾</span></h3>
+                <div id="ble-stats" class="section-content">
+                    <div id="ble-stats-content" class="ble-stats-panel"><div class="empty-state">No BLE data</div></div>
+                </div>
             </div>
             <hr class="divider">
             <div class="data-section">
@@ -251,6 +265,7 @@
     <script src="js/layers/lightning.js"></script>
     <script src="js/layers/airspace.js"></script>
     <script src="js/layers/webcams.js"></script>
+    <script src="js/layers/ble.js"></script>
     <script src="js/panels/drones-panel.js"></script>
     <script src="js/panels/aircraft-panel.js"></script>
     <script src="js/panels/settings-panel.js"></script>

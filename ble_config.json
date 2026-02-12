@@ -1,0 +1,24 @@
+{
+    "enabled": true,
+    "serial_port": "/dev/ttyUSB0",
+    "baud_rate": 921600,
+    "rssi_min": -100,
+    "scan_mode": "advertisements",
+    "categories": {
+        "drones": true,
+        "phones": true,
+        "trackers": true,
+        "vehicles": true,
+        "beacons": true,
+        "wearables": true,
+        "audio": true,
+        "unknown": false
+    },
+    "stale_timeout_seconds": 300,
+    "publish_interval_seconds": 30,
+    "gps": {
+        "enabled": true,
+        "serial_port": "/dev/ttyACM2",
+        "baud_rate": 9600
+    }
+}

@@ -15,7 +15,8 @@
         weather: null,
         lightning: null,
         airspace: null,
-        webcams: null
+        webcams: null,
+        ble: null
     };
 
     // ============ Initialization ============
@@ -42,6 +43,7 @@
             LightningLayer.init();
             AirspaceLayer.init();
             WebcamLayer.init();
+            if (window.BLELayer) BLELayer.init();
 
             // 4. Initialize panels
             DronesPanel.init();
@@ -57,7 +59,8 @@
                 weather: WeatherLayer,
                 lightning: LightningLayer,
                 airspace: AirspaceLayer,
-                webcams: WebcamLayer
+                webcams: WebcamLayer,
+                ble: window.BLELayer || null
             };
 
             // 6. Setup UI handlers
@@ -205,9 +208,9 @@
             var key = e.key.toLowerCase();
 
             // Number keys 1-8 toggle layers
-            var layerOrder = ['drones', 'aircraft', 'vessels', 'aprs', 'weather', 'lightning', 'airspace', 'webcams'];
+            var layerOrder = ['drones', 'aircraft', 'vessels', 'aprs', 'weather', 'lightning', 'airspace', 'webcams', 'ble'];
             var num = parseInt(key);
-            if (num >= 1 && num <= 8) {
+            if (num >= 1 && num <= 9) {
                 var layerName = layerOrder[num - 1];
                 var toggle = document.querySelector('.layer-toggle[data-layer="' + layerName + '"] input');
                 if (toggle) {

@@ -177,6 +177,11 @@ window.MeshMap = (function() {
         if (!map.getSource('weather-warnings')) {
             map.addSource('weather-warnings', { type: 'geojson', data: emptyGeoJSON });
         }
+
+        // BLE devices source
+        if (!map.getSource('ble-devices')) {
+            map.addSource('ble-devices', { type: 'geojson', data: emptyGeoJSON });
+        }
     }
 
     function getMap() { return map; }
