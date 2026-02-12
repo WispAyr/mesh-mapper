@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mesh Mapper — Drone Detection System</title>
+    <link rel="stylesheet" href="/static/vendor/maplibre-gl.css">
+    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+</head>
+<body>
+    <!-- Top Bar -->
+    <header id="top-bar">
+        <div class="top-bar-left">
+            <button id="btn-left-panel" class="icon-btn" title="Data Layers (L)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+            </button>
+            <div class="app-title">
+                <span class="app-icon">📡</span>
+                <span class="app-name">MESH MAPPER</span>
+                <span class="app-version">v2.0</span>
+            </div>
+        </div>
+        <div class="top-bar-center">
+            <div id="connection-status" class="status-indicator disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">Connecting…</span>
+            </div>
+        </div>
+        <div class="top-bar-right">
+            <button id="btn-audio-toggle" class="icon-btn" title="Toggle Audio Alerts (A)">
+                <svg id="audio-on-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.08"/></svg>
+                <svg id="audio-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+            </button>
+            <button id="btn-fullscreen" class="icon-btn" title="Fullscreen (F)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            </button>
+            <button id="btn-right-panel" class="icon-btn" title="Drone Detections (D)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Left Panel: Data Layers -->
+    <aside id="left-panel" class="panel panel-left">
+        <div class="panel-header">
+            <h2>Data Layers</h2>
+            <button class="panel-close" data-panel="left-panel">✕</button>
+        </div>
+        <div class="panel-body">
+            <!-- Layer toggles -->
+            <div class="layer-group">
+                <label class="layer-toggle" data-layer="drones">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#ff4444"></span>
+                    <span class="layer-icon">🛸</span>
+                    <span class="layer-name">Drones</span>
+                    <span class="layer-count" id="count-drones">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="aircraft">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#00d4ff"></span>
+                    <span class="layer-icon">✈️</span>
+                    <span class="layer-name">Aircraft</span>
+                    <span class="layer-count" id="count-aircraft">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="vessels">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#4a90d9"></span>
+                    <span class="layer-icon">🚢</span>
+                    <span class="layer-name">Ships</span>
+                    <span class="layer-count" id="count-vessels">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="aprs">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#ffd700"></span>
+                    <span class="layer-icon">📡</span>
+                    <span class="layer-name">APRS</span>
+                    <span class="layer-count" id="count-aprs">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="weather">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#8899aa"></span>
+                    <span class="layer-icon">🌦️</span>
+                    <span class="layer-name">Weather</span>
+                    <span class="layer-count" id="count-weather">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="lightning">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#ffee00"></span>
+                    <span class="layer-icon">⚡</span>
+                    <span class="layer-name">Lightning</span>
+                    <span class="layer-count" id="count-lightning">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="airspace">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#ff9900"></span>
+                    <span class="layer-icon">🔶</span>
+                    <span class="layer-name">Airspace</span>
+                    <span class="layer-count" id="count-airspace">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="webcams">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#66bb6a"></span>
+                    <span class="layer-icon">📷</span>
+                    <span class="layer-name">Webcams</span>
+                    <span class="layer-count" id="count-webcams">0</span>
+                </label>
+            </div>
+
+            <hr class="divider">
+
+            <!-- Aircraft list -->
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="aircraft-list">
+                    <span>✈️ Aircraft Nearby</span>
+                    <span class="toggle-arrow">▾</span>
+                </h3>
+                <div id="aircraft-list" class="section-content">
+                    <div class="empty-state">No aircraft data</div>
+                </div>
+            </div>
+
+            <!-- Vessel list -->
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="vessel-list">
+                    <span>🚢 Vessels Nearby</span>
+                    <span class="toggle-arrow">▾</span>
+                </h3>
+                <div id="vessel-list" class="section-content">
+                    <div class="empty-state">No vessel data</div>
+                </div>
+            </div>
+
+            <!-- APRS stations -->
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="aprs-list">
+                    <span>📡 APRS Stations</span>
+                    <span class="toggle-arrow">▾</span>
+                </h3>
+                <div id="aprs-list" class="section-content">
+                    <div class="empty-state">No APRS data</div>
+                </div>
+            </div>
+
+            <!-- Weather warnings -->
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="weather-list">
+                    <span>🌦️ Weather Warnings</span>
+                    <span class="toggle-arrow">▾</span>
+                </h3>
+                <div id="weather-list" class="section-content">
+                    <div class="empty-state">No warnings</div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Right Panel: Drone Detections -->
+    <aside id="right-panel" class="panel panel-right">
+        <div class="panel-header">
+            <h2>🛸 Drone Detections</h2>
+            <button class="panel-close" data-panel="right-panel">✕</button>
+        </div>
+        <div class="panel-body">
+            <div class="detection-summary">
+                <div class="summary-stat">
+                    <span class="stat-value" id="active-drones">0</span>
+                    <span class="stat-label">Active</span>
+                </div>
+                <div class="summary-stat">
+                    <span class="stat-value" id="inactive-drones">0</span>
+                    <span class="stat-label">Inactive</span>
+                </div>
+                <div class="summary-stat">
+                    <span class="stat-value" id="total-drones">0</span>
+                    <span class="stat-label">Total</span>
+                </div>
+            </div>
+
+            <div id="drone-list" class="drone-list">
+                <div class="empty-state">No drone detections</div>
+            </div>
+
+            <hr class="divider">
+
+            <h3 class="section-title" data-toggle="alert-log">
+                <span>📋 Alert Log</span>
+                <span class="toggle-arrow">▾</span>
+            </h3>
+            <div id="alert-log" class="section-content alert-log">
+                <div class="empty-state">No alerts</div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- Bottom Status Bar -->
+    <footer id="bottom-bar">
+        <div class="status-group">
+            <span class="status-item" id="serial-status">
+                <span class="status-dot offline"></span>
+                Serial: —
+            </span>
+            <span class="status-item" id="websocket-status">
+                <span class="status-dot offline"></span>
+                WS: Disconnected
+            </span>
+        </div>
+        <div class="status-group center">
+            <span class="status-item" id="last-update">Last update: —</span>
+            <span class="status-item" id="uptime-display">Uptime: —</span>
+        </div>
+        <div class="status-group right">
+            <span class="status-item" id="coords-display">—</span>
+            <span class="status-item" id="zoom-display">Z: —</span>
+        </div>
+    </footer>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Initializing Mesh Mapper…</div>
+            <div class="loading-sub" id="loading-status">Connecting to server</div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/vendor/socket.io.min.js"></script>
+    <script src="/static/vendor/maplibre-gl.js"></script>
+    <script src="/static/assets/icons/icons.js"></script>
+    <script src="/static/js/utils/socket.js"></script>
+    <script src="/static/js/utils/api.js"></script>
+    <script src="/static/js/utils/audio.js"></script>
+    <script src="/static/js/map.js"></script>
+    <script src="/static/js/layers/drones.js"></script>
+    <script src="/static/js/layers/aircraft.js"></script>
+    <script src="/static/js/layers/vessels.js"></script>
+    <script src="/static/js/layers/aprs.js"></script>
+    <script src="/static/js/layers/weather.js"></script>
+    <script src="/static/js/layers/lightning.js"></script>
+    <script src="/static/js/layers/airspace.js"></script>
+    <script src="/static/js/layers/webcams.js"></script>
+    <script src="/static/js/panels/drones-panel.js"></script>
+    <script src="/static/js/panels/aircraft-panel.js"></script>
+    <script src="/static/js/panels/settings-panel.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

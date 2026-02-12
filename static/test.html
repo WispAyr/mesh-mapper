@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mesh Mapper — UI Test</title>
+    <link rel="stylesheet" href="vendor/maplibre-gl.css">
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+    <!-- Top Bar -->
+    <header id="top-bar">
+        <div class="top-bar-left">
+            <button id="btn-left-panel" class="icon-btn" title="Data Layers (L)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+            </button>
+            <div class="app-title">
+                <span class="app-icon">📡</span>
+                <span class="app-name">MESH MAPPER</span>
+                <span class="app-version">v2.0 TEST</span>
+            </div>
+        </div>
+        <div class="top-bar-center">
+            <div id="connection-status" class="status-indicator connected">
+                <span class="status-dot"></span>
+                <span class="status-text">Mock Mode</span>
+            </div>
+        </div>
+        <div class="top-bar-right">
+            <button id="btn-audio-toggle" class="icon-btn" title="Toggle Audio Alerts (A)">
+                <svg id="audio-on-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.08"/></svg>
+                <svg id="audio-off-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+            </button>
+            <button id="btn-fullscreen" class="icon-btn" title="Fullscreen (F)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            </button>
+            <button id="btn-right-panel" class="icon-btn" title="Drone Detections (D)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+            </button>
+            <button id="btn-inject-mock" class="icon-btn" title="Inject mock data" style="color:#22c55e">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Left Panel -->
+    <aside id="left-panel" class="panel panel-left">
+        <div class="panel-header">
+            <h2>Data Layers</h2>
+            <button class="panel-close" data-panel="left-panel">✕</button>
+        </div>
+        <div class="panel-body">
+            <div class="layer-group">
+                <label class="layer-toggle" data-layer="drones">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#ff4444"></span>
+                    <span class="layer-icon">🛸</span>
+                    <span class="layer-name">Drones</span>
+                    <span class="layer-count" id="count-drones">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="aircraft">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#00d4ff"></span>
+                    <span class="layer-icon">✈️</span>
+                    <span class="layer-name">Aircraft</span>
+                    <span class="layer-count" id="count-aircraft">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="vessels">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#4a90d9"></span>
+                    <span class="layer-icon">🚢</span>
+                    <span class="layer-name">Ships</span>
+                    <span class="layer-count" id="count-vessels">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="aprs">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#ffd700"></span>
+                    <span class="layer-icon">📡</span>
+                    <span class="layer-name">APRS</span>
+                    <span class="layer-count" id="count-aprs">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="weather">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#8899aa"></span>
+                    <span class="layer-icon">🌦️</span>
+                    <span class="layer-name">Weather</span>
+                    <span class="layer-count" id="count-weather">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="lightning">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#ffee00"></span>
+                    <span class="layer-icon">⚡</span>
+                    <span class="layer-name">Lightning</span>
+                    <span class="layer-count" id="count-lightning">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="airspace">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#ff9900"></span>
+                    <span class="layer-icon">🔶</span>
+                    <span class="layer-name">Airspace</span>
+                    <span class="layer-count" id="count-airspace">0</span>
+                </label>
+                <label class="layer-toggle" data-layer="webcams">
+                    <input type="checkbox" checked>
+                    <span class="layer-color" style="background:#66bb6a"></span>
+                    <span class="layer-icon">📷</span>
+                    <span class="layer-name">Webcams</span>
+                    <span class="layer-count" id="count-webcams">0</span>
+                </label>
+            </div>
+            <hr class="divider">
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="aircraft-list"><span>✈️ Aircraft Nearby</span><span class="toggle-arrow">▾</span></h3>
+                <div id="aircraft-list" class="section-content"><div class="empty-state">No aircraft data</div></div>
+            </div>
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="vessel-list"><span>🚢 Vessels Nearby</span><span class="toggle-arrow">▾</span></h3>
+                <div id="vessel-list" class="section-content"><div class="empty-state">No vessel data</div></div>
+            </div>
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="aprs-list"><span>📡 APRS Stations</span><span class="toggle-arrow">▾</span></h3>
+                <div id="aprs-list" class="section-content"><div class="empty-state">No APRS data</div></div>
+            </div>
+            <div class="data-section">
+                <h3 class="section-title" data-toggle="weather-list"><span>🌦️ Weather Warnings</span><span class="toggle-arrow">▾</span></h3>
+                <div id="weather-list" class="section-content"><div class="empty-state">No warnings</div></div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Right Panel -->
+    <aside id="right-panel" class="panel panel-right">
+        <div class="panel-header">
+            <h2>🛸 Drone Detections</h2>
+            <button class="panel-close" data-panel="right-panel">✕</button>
+        </div>
+        <div class="panel-body">
+            <div class="detection-summary">
+                <div class="summary-stat">
+                    <span class="stat-value" id="active-drones">0</span>
+                    <span class="stat-label">Active</span>
+                </div>
+                <div class="summary-stat">
+                    <span class="stat-value" id="inactive-drones">0</span>
+                    <span class="stat-label">Inactive</span>
+                </div>
+                <div class="summary-stat">
+                    <span class="stat-value" id="total-drones">0</span>
+                    <span class="stat-label">Total</span>
+                </div>
+            </div>
+            <div id="drone-list" class="drone-list"><div class="empty-state">No drone detections</div></div>
+            <hr class="divider">
+            <h3 class="section-title" data-toggle="alert-log"><span>📋 Alert Log</span><span class="toggle-arrow">▾</span></h3>
+            <div id="alert-log" class="section-content alert-log"><div class="empty-state">No alerts</div></div>
+        </div>
+    </aside>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Bottom Bar -->
+    <footer id="bottom-bar">
+        <div class="status-group">
+            <span class="status-item" id="serial-status"><span class="status-dot offline"></span>Serial: Mock</span>
+            <span class="status-item" id="websocket-status"><span class="status-dot online"></span>WS: Mock Mode</span>
+        </div>
+        <div class="status-group center">
+            <span class="status-item" id="last-update">Last update: —</span>
+            <span class="status-item" id="uptime-display">Session: 0s</span>
+        </div>
+        <div class="status-group right">
+            <span class="status-item" id="coords-display">—</span>
+            <span class="status-item" id="zoom-display">Z: —</span>
+        </div>
+    </footer>
+
+    <!-- Loading Overlay (hidden in test mode) -->
+    <div id="loading-overlay" class="hidden">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading…</div>
+            <div class="loading-sub" id="loading-status">Test mode</div>
+        </div>
+    </div>
+
+    <!-- Mock SocketIO + Test Setup -->
+    <script src="vendor/maplibre-gl.js"></script>
+    <script src="assets/icons/icons.js"></script>
+
+    <script>
+    /* ========== Mock SocketIO ========== */
+    (function() {
+        var handlers = {};
+
+        window.MeshSocket = {
+            init: function() { console.log('[MockSocket] Initialized'); },
+            on: function(event, cb) {
+                if (!handlers[event]) handlers[event] = [];
+                handlers[event].push(cb);
+            },
+            off: function() {},
+            emit: function() {},
+            onConnect: function(cb) { setTimeout(cb, 100); },
+            onDisconnect: function() {},
+            isConnected: function() { return true; },
+            _trigger: function(event, data) {
+                if (handlers[event]) {
+                    handlers[event].forEach(function(cb) { cb(data); });
+                }
+            }
+        };
+
+        window.MeshAPI = {
+            get: function() { return Promise.resolve(null); },
+            post: function() { return Promise.resolve(null); },
+            getRecentData: function() { return Promise.resolve(null); },
+            getZones: function() { return Promise.resolve(null); },
+            getDetections: function() { return Promise.resolve({}); },
+            getAircraft: function() { return Promise.resolve({}); },
+            getVessels: function() { return Promise.resolve({}); },
+            getAprsStations: function() { return Promise.resolve({}); },
+            getWeather: function() { return Promise.resolve({}); },
+            getMetOfficeWarnings: function() { return Promise.resolve([]); },
+            getWebcams: function() { return Promise.resolve({}); },
+            getSerialStatus: function() { return Promise.resolve({}); },
+            getSelectedPorts: function() { return Promise.resolve({}); },
+            getDiagnostics: function() { return Promise.resolve({}); }
+        };
+
+        window.MeshAudio = {
+            isEnabled: function() { return false; },
+            toggle: function() { return false; },
+            setEnabled: function() {},
+            droneAlert: function() {},
+            zoneAlert: function() {},
+            lightningAlert: function() {},
+            connectionAlert: function() {},
+            disconnectAlert: function() {},
+            playTone: function() {}
+        };
+    })();
+    </script>
+
+    <script src="js/map.js"></script>
+    <script src="js/layers/drones.js"></script>
+    <script src="js/layers/aircraft.js"></script>
+    <script src="js/layers/vessels.js"></script>
+    <script src="js/layers/aprs.js"></script>
+    <script src="js/layers/weather.js"></script>
+    <script src="js/layers/lightning.js"></script>
+    <script src="js/layers/airspace.js"></script>
+    <script src="js/layers/webcams.js"></script>
+    <script src="js/panels/drones-panel.js"></script>
+    <script src="js/panels/aircraft-panel.js"></script>
+    <script src="js/panels/settings-panel.js"></script>
+    <script src="js/app.js"></script>
+
+    <script>
+    /* ========== Mock Data Injection ========== */
+    function injectMockData() {
+        console.log('[Test] Injecting mock data…');
+
+        // Mock aircraft
+        var aircraft = [];
+        for (var i = 0; i < 25; i++) {
+            aircraft.push({
+                hex: 'AC' + String(i).padStart(4, '0'),
+                flight: 'BA' + (100 + i),
+                lat: 55.5 + (Math.random() - 0.5) * 4,
+                lon: -4.0 + (Math.random() - 0.5) * 6,
+                alt_baro: Math.floor(5000 + Math.random() * 35000),
+                gs: Math.floor(200 + Math.random() * 300),
+                track: Math.floor(Math.random() * 360),
+                squawk: String(1200 + Math.floor(Math.random() * 6000)),
+                r: 'G-' + String.fromCharCode(65 + i % 26) + String.fromCharCode(65 + (i * 3) % 26) + String.fromCharCode(65 + (i * 7) % 26) + String.fromCharCode(65 + (i * 11) % 26),
+                t: ['A320', 'B738', 'A319', 'B77W', 'E190', 'AT72', 'DH8D'][i % 7]
+            });
+        }
+        MeshSocket._trigger('adsb_aircraft', { aircraft: aircraft });
+
+        // Mock vessels
+        var vessels = [];
+        for (var i = 0; i < 8; i++) {
+            vessels.push({
+                mmsi: '2' + String(35000 + i),
+                name: ['MV Highland', 'CalMac Ferry', 'HMS Vigilant', 'SS Explorer', 'FV Harvest', 'MV Clansman', 'RV Discovery', 'SV Aurora'][i],
+                lat: 55.8 + (Math.random() - 0.5) * 3,
+                lon: -5.0 + (Math.random() - 0.5) * 4,
+                speed: (Math.random() * 15).toFixed(1),
+                course: Math.floor(Math.random() * 360),
+                ship_type: ['Cargo', 'Passenger', 'Military', 'Research', 'Fishing', 'Passenger', 'Research', 'Sailing'][i]
+            });
+        }
+        MeshSocket._trigger('ais_vessels', { vessels: vessels });
+
+        // Mock APRS
+        var stations = [
+            { callsign: 'GM4FVM-9', lat: 55.945, lng: -3.188, comment: 'Edinburgh APRS', altitude: 120 },
+            { callsign: 'GM8BJF-1', lat: 55.87, lng: -4.29, comment: 'Glasgow Digipeater', altitude: 85 },
+            { callsign: 'MM0ZBH-5', lat: 56.12, lng: -3.95, comment: 'Mobile Stirling area', speed: 45 }
+        ];
+        MeshSocket._trigger('aprs_stations', { stations: stations });
+
+        // Mock drone detections
+        var drones = {
+            'AA:BB:CC:DD:11:22': {
+                mac: 'AA:BB:CC:DD:11:22',
+                drone_lat: 55.46,
+                drone_long: -4.63,
+                pilot_lat: 55.458,
+                pilot_long: -4.628,
+                drone_altitude: 120,
+                rssi: -65,
+                basic_id: 'DJI-MAVIC3-001',
+                remote_id: 'SN123456789',
+                status: 'active',
+                active: true
+            },
+            'AA:BB:CC:DD:33:44': {
+                mac: 'AA:BB:CC:DD:33:44',
+                drone_lat: 55.48,
+                drone_long: -4.61,
+                pilot_lat: 55.479,
+                pilot_long: -4.609,
+                drone_altitude: 85,
+                rssi: -72,
+                basic_id: 'DJI-MINI4-002',
+                status: 'active',
+                active: true
+            },
+            'FF:EE:DD:CC:BB:AA': {
+                mac: 'FF:EE:DD:CC:BB:AA',
+                drone_lat: 55.44,
+                drone_long: -4.65,
+                drone_altitude: 0,
+                rssi: -88,
+                status: 'inactive',
+                active: false
+            }
+        };
+        MeshSocket._trigger('detections', drones);
+        MeshSocket._trigger('aliases', { 'AA:BB:CC:DD:11:22': 'Test Mavic', 'FF:EE:DD:CC:BB:AA': 'Old Signal' });
+
+        // Mock lightning
+        for (var i = 0; i < 5; i++) {
+            MeshSocket._trigger('lightning_strike', {
+                lat: 55.0 + Math.random() * 2,
+                lon: -5.0 + Math.random() * 3,
+                distance: (Math.random() * 50).toFixed(1)
+            });
+        }
+
+        console.log('[Test] Mock data injected ✓');
+        document.getElementById('last-update').textContent = 'Last update: ' + new Date().toLocaleTimeString();
+    }
+
+    // Inject button
+    document.addEventListener('DOMContentLoaded', function() {
+        var btn = document.getElementById('btn-inject-mock');
+        if (btn) {
+            btn.addEventListener('click', injectMockData);
+        }
+
+        // Auto-inject after map loads
+        setTimeout(injectMockData, 2000);
+    });
+    </script>
+</body>
+</html>
