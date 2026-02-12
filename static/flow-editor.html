@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alert Flow Editor — Mesh Mapper</title>
+    <link rel="stylesheet" href="/static/vendor/drawflow.min.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+
+    <style>
+        /* ============================================================
+           CSS Variables — Dark Ops Theme
+           ============================================================ */
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-panel: #0f1629;
+            --bg-card: #1a2238;
+            --bg-hover: #1e2a42;
+            --bg-input: #0d1320;
+            --border-color: #1e2d4a;
+            --border-active: #2a4a7a;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --text-accent: #38bdf8;
+            --color-success: #22c55e;
+            --color-warning: #f59e0b;
+            --color-danger: #ef4444;
+            --color-info: #3b82f6;
+            --color-trigger: #1e88e5;
+            --color-condition: #ff8f00;
+            --color-action: #43a047;
+            --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+            --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --topbar-h: 48px;
+            --sidebar-w: 220px;
+            --propbar-w: 300px;
+            --transition: 0.2s ease;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--border-active); }
+
+        /* ============================================================
+           Top Bar
+           ============================================================ */
+        .topbar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: var(--topbar-h);
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            z-index: 100;
+            gap: 12px;
+        }
+
+        .topbar__brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .topbar__brand:hover { color: var(--text-accent); }
+        .topbar__brand-icon { font-size: 18px; }
+        .topbar__sep { color: var(--border-color); }
+
+        .topbar__title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-accent);
+            letter-spacing: 0.5px;
+        }
+
+        .topbar__flow-name {
+            flex: 1;
+            min-width: 150px;
+            max-width: 300px;
+        }
+        .topbar__flow-name input {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-family: var(--font-sans);
+            font-size: 13px;
+        }
+        .topbar__flow-name input:focus {
+            outline: none;
+            border-color: var(--text-accent);
+        }
+
+        .topbar__meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .topbar__select {
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 5px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .topbar__select:focus { outline: none; border-color: var(--text-accent); }
+
+        .topbar__toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 36px; height: 20px;
+            cursor: pointer;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-switch .slider {
+            position: absolute;
+            inset: 0;
+            background: var(--border-color);
+            border-radius: 10px;
+            transition: var(--transition);
+        }
+        .toggle-switch .slider::before {
+            content: '';
+            position: absolute;
+            width: 16px; height: 16px;
+            left: 2px; bottom: 2px;
+            background: #fff;
+            border-radius: 50%;
+            transition: var(--transition);
+        }
+        .toggle-switch input:checked + .slider { background: var(--color-success); }
+        .toggle-switch input:checked + .slider::before { transform: translateX(16px); }
+
+        .topbar__cooldown {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .topbar__cooldown input {
+            width: 60px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 4px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .save-indicator {
+            font-size: 11px;
+            color: transparent;
+        }
+        .save-indicator.unsaved { color: var(--color-warning); }
+
+        .topbar__spacer { flex: 1; }
+
+        .topbar__actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tb-btn {
+            padding: 6px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: var(--transition);
+        }
+        .tb-btn:hover { border-color: var(--border-active); background: var(--bg-hover); }
+        .tb-btn--primary { background: var(--color-info); border-color: var(--color-info); color: #fff; font-weight: 600; }
+        .tb-btn--primary:hover { background: #2563eb; }
+        .tb-btn--success { background: var(--color-success); border-color: var(--color-success); color: #fff; }
+        .tb-btn--success:hover { background: #16a34a; }
+        .tb-btn--ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+        .tb-btn--ghost:hover { color: var(--text-accent); }
+
+        /* ============================================================
+           Layout: Sidebar + Canvas + Properties
+           ============================================================ */
+        .editor-layout {
+            position: fixed;
+            top: var(--topbar-h);
+            left: 0; right: 0; bottom: 0;
+            display: flex;
+        }
+
+        /* ── Left Sidebar: Node Palette ── */
+        .node-palette {
+            width: var(--sidebar-w);
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border-color);
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .palette-category {
+            border-bottom: 1px solid var(--border-color);
+        }
+        .palette-category__header {
+            padding: 10px 12px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .palette-category__header:hover { color: var(--text-secondary); }
+        .palette-category__dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .palette-node {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 12px 7px 20px;
+            cursor: grab;
+            font-size: 13px;
+            color: var(--text-secondary);
+            transition: var(--transition);
+            user-select: none;
+        }
+        .palette-node:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        .palette-node:active { cursor: grabbing; }
+        .palette-node__icon { font-size: 15px; width: 20px; text-align: center; }
+        .palette-node__name { font-size: 12px; }
+
+        /* ── Center: Drawflow Canvas ── */
+        .canvas-wrap {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #drawflow {
+            width: 100%;
+            height: 100%;
+            background: var(--bg-primary);
+        }
+
+        /* Canvas hints */
+        .canvas-hint {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: var(--text-muted);
+            pointer-events: none;
+            z-index: 1;
+        }
+        .canvas-hint__icon { font-size: 48px; opacity: 0.3; }
+        .canvas-hint__text { font-size: 14px; margin-top: 8px; }
+        .canvas-hint__sub { font-size: 11px; margin-top: 4px; color: var(--border-active); }
+
+        /* ── Right Sidebar: Property Editor ── */
+        .property-panel {
+            width: var(--propbar-w);
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border-color);
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .property-panel__header {
+            padding: 12px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        /* ============================================================
+           Drawflow Theme Overrides
+           ============================================================ */
+        .drawflow .drawflow-node {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            min-width: 160px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            transition: box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+        .drawflow .drawflow-node:hover {
+            border-color: var(--border-active);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        }
+        .drawflow .drawflow-node.selected {
+            border-color: var(--text-accent);
+            box-shadow: 0 0 0 2px rgba(56,189,248,0.25), 0 4px 16px rgba(0,0,0,0.5);
+        }
+
+        .drawflow .drawflow-node .input, .drawflow .drawflow-node .output {
+            width: 12px; height: 12px;
+            background: var(--border-active);
+            border: 2px solid var(--bg-primary);
+            border-radius: 50%;
+        }
+        .drawflow .drawflow-node .input:hover, .drawflow .drawflow-node .output:hover {
+            background: var(--text-accent);
+        }
+
+        .drawflow .connection .main-path {
+            stroke: var(--border-active);
+            stroke-width: 2;
+        }
+        .drawflow .connection .main-path:hover {
+            stroke: var(--text-accent);
+            stroke-width: 3;
+        }
+
+        .drawflow .drawflow-delete {
+            background: var(--color-danger);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 20px; height: 20px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Drawflow background grid */
+        #drawflow {
+            background-image: 
+                radial-gradient(circle, var(--border-color) 0.5px, transparent 0.5px);
+            background-size: 20px 20px;
+        }
+
+        /* ============================================================
+           Flow Node Styles (inside canvas)
+           ============================================================ */
+        .flow-node {
+            font-family: var(--font-sans);
+        }
+        .flow-node__header {
+            padding: 6px 10px;
+            border-radius: 5px 5px 0 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .flow-node__icon { font-size: 14px; }
+        .flow-node__title { white-space: nowrap; }
+        .flow-node__body {
+            padding: 6px 10px;
+            font-size: 10px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .flow-node--trigger .flow-node__header { background: var(--color-trigger); }
+        .flow-node--condition .flow-node__header { background: var(--color-condition); }
+        .flow-node--action .flow-node__header { background: var(--color-action); }
+
+        /* ============================================================
+           Property Panel Styles
+           ============================================================ */
+        .prop-empty, .prop-empty-fields {
+            padding: 20px 16px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+        .prop-empty-fields { padding: 12px 16px; font-size: 12px; }
+
+        .prop-header {
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .prop-header__icon { font-size: 22px; }
+        .prop-header__name { font-size: 14px; font-weight: 600; }
+        .prop-header__type { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+        .prop-desc {
+            padding: 8px 14px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .prop-fields { padding: 8px 0; }
+
+        .prop-field {
+            padding: 6px 14px;
+        }
+        .prop-field__label {
+            display: block;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .prop-input {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 6px 8px;
+            border-radius: 4px;
+            font-family: var(--font-sans);
+            font-size: 13px;
+            transition: border-color var(--transition);
+        }
+        .prop-input:focus {
+            outline: none;
+            border-color: var(--text-accent);
+        }
+        select.prop-input {
+            cursor: pointer;
+        }
+        .prop-textarea {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .prop-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding: 2px 0;
+        }
+        .prop-checkbox input[type="checkbox"] {
+            accent-color: var(--text-accent);
+            width: 14px; height: 14px;
+        }
+
+        .prop-multiselect {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .prop-multi-option {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 3px 6px;
+            background: var(--bg-input);
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .prop-multi-option input { accent-color: var(--text-accent); width: 12px; height: 12px; }
+
+        .prop-vars {
+            margin: 12px 14px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+        .prop-vars__title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .prop-vars__list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .prop-var {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            padding: 2px 5px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            color: var(--text-accent);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .prop-var:hover {
+            background: rgba(56,189,248,0.1);
+            border-color: var(--text-accent);
+        }
+
+        .prop-actions {
+            padding: 12px 14px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .prop-btn {
+            width: 100%;
+            padding: 7px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .prop-btn:hover { border-color: var(--border-active); }
+        .prop-btn--delete { color: var(--color-danger); border-color: rgba(239,68,68,0.3); }
+        .prop-btn--delete:hover { background: rgba(239,68,68,0.1); border-color: var(--color-danger); }
+
+        /* ============================================================
+           Flow List Panel (when embedded in editor)
+           ============================================================ */
+        .flow-list { padding: 0; }
+        .flow-list__header {
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .flow-list__title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .flow-list__icon { font-size: 18px; }
+        .flow-list__count {
+            font-size: 11px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 1px 6px;
+            border-radius: 10px;
+            color: var(--text-muted);
+        }
+        .flow-list__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+        .fl-btn {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: var(--transition);
+            text-decoration: none;
+        }
+        .fl-btn:hover { border-color: var(--border-active); background: var(--bg-hover); }
+        .fl-btn--primary { background: var(--color-info); border-color: var(--color-info); color: #fff; }
+        .fl-btn--primary:hover { background: #2563eb; }
+        .fl-btn--secondary { background: var(--bg-hover); }
+        .fl-btn--ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
+        .fl-btn--ghost:hover { color: var(--text-accent); }
+        .fl-btn--danger:hover { background: rgba(239,68,68,0.15); border-color: var(--color-danger); }
+        .fl-btn--sm { padding: 3px 8px; font-size: 11px; }
+
+        .flow-list__table-wrap { overflow-x: auto; }
+        .flow-list__table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .flow-list__table th {
+            text-align: left;
+            padding: 8px 12px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .flow-list__table td {
+            padding: 8px 12px;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(30,45,74,0.5);
+        }
+        .flow-list__row:hover td { background: var(--bg-hover); }
+        .flow-list__row--disabled { opacity: 0.5; }
+
+        .flow-list__name {
+            color: var(--text-accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .flow-list__name:hover { text-decoration: underline; }
+
+        .flow-list__badge {
+            font-size: 9px;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            margin-left: 6px;
+        }
+
+        .flow-list__time {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+        .flow-list__count-cell { font-family: var(--font-mono); font-size: 12px; }
+        .flow-list__cell-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .flow-list__empty td { padding: 40px; }
+        .flow-list__empty-content { text-align: center; }
+        .flow-list__empty-icon { font-size: 32px; opacity: 0.4; }
+        .flow-list__empty-hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+        .flow-toggle {
+            position: relative;
+            display: inline-block;
+            width: 32px; height: 18px;
+            cursor: pointer;
+        }
+        .flow-toggle input { opacity: 0; width: 0; height: 0; }
+        .flow-toggle__track {
+            position: absolute;
+            inset: 0;
+            background: var(--border-color);
+            border-radius: 9px;
+            transition: var(--transition);
+        }
+        .flow-toggle__track::before {
+            content: '';
+            position: absolute;
+            width: 14px; height: 14px;
+            left: 2px; bottom: 2px;
+            background: #fff;
+            border-radius: 50%;
+            transition: var(--transition);
+        }
+        .flow-toggle input:checked + .flow-toggle__track { background: var(--color-success); }
+        .flow-toggle input:checked + .flow-toggle__track::before { transform: translateX(14px); }
+
+        .severity-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            border: 1px solid;
+        }
+        .severity-badge--sm { padding: 1px 5px; font-size: 9px; }
+
+        /* ============================================================
+           Template Picker Modal
+           ============================================================ */
+        .tpl-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .tpl-picker {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+        }
+        .tpl-picker__header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .tpl-picker__header h3 { font-size: 15px; }
+        .tpl-picker__close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 18px;
+            cursor: pointer;
+        }
+        .tpl-picker__close:hover { color: var(--text-primary); }
+        .tpl-picker__body { overflow-y: auto; padding: 14px 18px; }
+        .tpl-picker__empty { text-align: center; color: var(--text-muted); padding: 20px; }
+
+        .tpl-category { margin-bottom: 16px; }
+        .tpl-category__title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .tpl-category__grid { display: flex; flex-direction: column; gap: 6px; }
+
+        .tpl-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .tpl-card:hover {
+            border-color: var(--text-accent);
+            background: var(--bg-hover);
+        }
+        .tpl-card__icon { font-size: 24px; }
+        .tpl-card__info { flex: 1; }
+        .tpl-card__name { font-size: 13px; font-weight: 600; }
+        .tpl-card__desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+        /* ============================================================
+           Notifications
+           ============================================================ */
+        .flow-notifications {
+            position: fixed;
+            top: calc(var(--topbar-h) + 10px);
+            right: 10px;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .flow-toast {
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            opacity: 0;
+            transform: translateX(20px);
+            transition: all 0.3s ease;
+        }
+        .flow-toast.show { opacity: 1; transform: translateX(0); }
+        .flow-toast--success { border-color: var(--color-success); }
+        .flow-toast--success .flow-toast__icon { color: var(--color-success); }
+        .flow-toast--error { border-color: var(--color-danger); }
+        .flow-toast--error .flow-toast__icon { color: var(--color-danger); }
+        .flow-toast--info { border-color: var(--color-info); }
+        .flow-toast--info .flow-toast__icon { color: var(--color-info); }
+
+        /* ============================================================
+           Responsive
+           ============================================================ */
+        @media (max-width: 900px) {
+            .node-palette { width: 180px; }
+            .property-panel { width: 260px; }
+        }
+        @media (max-width: 700px) {
+            .property-panel { display: none; }
+            .node-palette { width: 160px; }
+        }
+
+        /* ============================================================
+           View Switcher (editor vs list)
+           ============================================================ */
+        .view-switch {
+            display: none;
+            position: fixed;
+            top: var(--topbar-h);
+            left: 0; right: 0; bottom: 0;
+            background: var(--bg-primary);
+            z-index: 50;
+            overflow-y: auto;
+        }
+        .view-switch.active { display: block; }
+    </style>
+</head>
+<body>
+    <!-- ═══ Top Bar ═══ -->
+    <div class="topbar">
+        <a href="/" class="topbar__brand" title="Back to Map">
+            <span class="topbar__brand-icon">📡</span>
+            MESH MAPPER
+        </a>
+        <span class="topbar__sep">›</span>
+        <span class="topbar__title">ALERT FLOW EDITOR</span>
+
+        <div class="topbar__flow-name">
+            <input type="text" id="flow-name" placeholder="Flow name…" value="">
+        </div>
+
+        <div class="topbar__meta">
+            <select id="flow-severity" class="topbar__select" title="Severity">
+                <option value="info">ℹ️ Info</option>
+                <option value="warning" selected>⚠️ Warning</option>
+                <option value="critical">🚨 Critical</option>
+                <option value="emergency">🆘 Emergency</option>
+            </select>
+
+            <label class="topbar__toggle">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="flow-enabled" checked>
+                    <span class="slider"></span>
+                </label>
+                Enabled
+            </label>
+
+            <div class="topbar__cooldown">
+                <span title="Cooldown between repeated alerts">⏱</span>
+                <input type="number" id="flow-cooldown" value="300" min="0" max="86400" title="Cooldown (seconds)">
+                <span>s</span>
+            </div>
+        </div>
+
+        <span id="save-indicator" class="save-indicator"></span>
+        <span class="topbar__spacer"></span>
+
+        <div class="topbar__actions">
+            <button class="tb-btn tb-btn--ghost" onclick="showFlowList()" title="Manage all flows">📋 Flows</button>
+            <button class="tb-btn" onclick="FlowManager.newFlow()">✚ New</button>
+            <button class="tb-btn" onclick="FlowManager.testFlow()">▶ Test</button>
+            <button class="tb-btn tb-btn--primary" onclick="FlowManager.saveFlow()">💾 Save</button>
+            <a href="/" class="tb-btn tb-btn--ghost">← Map</a>
+        </div>
+    </div>
+
+    <!-- ═══ Editor Layout ═══ -->
+    <div class="editor-layout" id="editor-view">
+        <!-- Left: Node Palette -->
+        <div class="node-palette" id="node-palette"></div>
+
+        <!-- Center: Drawflow Canvas -->
+        <div class="canvas-wrap">
+            <div id="drawflow"></div>
+            <div class="canvas-hint" id="canvas-hint">
+                <div class="canvas-hint__icon">⚡</div>
+                <div class="canvas-hint__text">Drag nodes from the left palette</div>
+                <div class="canvas-hint__sub">Connect trigger → condition → action</div>
+            </div>
+        </div>
+
+        <!-- Right: Property Editor -->
+        <div class="property-panel">
+            <div class="property-panel__header">⚙️ PROPERTIES</div>
+            <div id="property-panel-body">
+                <div class="prop-empty">Select a node to edit its properties</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Flow List View (overlay) ═══ -->
+    <div class="view-switch" id="flow-list-view">
+        <div id="flow-list-panel"></div>
+        <div style="padding:12px 16px; border-top: 1px solid var(--border-color);">
+            <button class="fl-btn" onclick="showEditor()">← Back to Editor</button>
+        </div>
+    </div>
+
+    <!-- ═══ Notifications ═══ -->
+    <div class="flow-notifications" id="flow-notifications"></div>
+
+    <!-- ═══ Scripts ═══ -->
+    <script src="/static/vendor/drawflow.min.js"></script>
+    <script src="/static/js/alerts/flow-nodes.js"></script>
+    <script src="/static/js/alerts/flow-properties.js"></script>
+    <script src="/static/js/alerts/flow-manager.js"></script>
+    <script src="/static/js/alerts/flow-list.js"></script>
+
+    <script>
+    (function() {
+        'use strict';
+
+        // ============================================================
+        // Initialise Drawflow
+        // ============================================================
+        const container = document.getElementById('drawflow');
+        const editor = new Drawflow(container);
+        editor.reroute = true;
+        editor.reroute_fix_curvature = true;
+        editor.force_first_input = false;
+        editor.start();
+
+        // ============================================================
+        // Build Node Palette
+        // ============================================================
+        const palette = document.getElementById('node-palette');
+        const groups = FlowNodes.getNodesByCategory();
+
+        for (const [catKey, catNodes] of Object.entries(groups)) {
+            const catDef = FlowNodes.CATEGORIES[catKey];
+            const section = document.createElement('div');
+            section.className = 'palette-category';
+
+            let nodesHtml = '';
+            for (const node of catNodes) {
+                nodesHtml += `
+                    <div class="palette-node" draggable="true" data-node-type="${node.type}">
+                        <span class="palette-node__icon">${node.icon}</span>
+                        <span class="palette-node__name">${node.name}</span>
+                    </div>
+                `;
+            }
+
+            section.innerHTML = `
+                <div class="palette-category__header">
+                    <span class="palette-category__dot" style="background:${catDef.color}"></span>
+                    ${catDef.label}
+                </div>
+                ${nodesHtml}
+            `;
+
+            palette.appendChild(section);
+        }
+
+        // ============================================================
+        // Drag & Drop from Palette to Canvas
+        // ============================================================
+        palette.addEventListener('dragstart', function(e) {
+            const nodeEl = e.target.closest('.palette-node');
+            if (!nodeEl) return;
+            e.dataTransfer.setData('node-type', nodeEl.dataset.nodeType);
+            e.dataTransfer.effectAllowed = 'copy';
+        });
+
+        container.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+        });
+
+        container.addEventListener('drop', function(e) {
+            e.preventDefault();
+            const nodeType = e.dataTransfer.getData('node-type');
+            if (!nodeType) return;
+
+            const nodeDef = FlowNodes.NODE_TYPES[nodeType];
+            if (!nodeDef) return;
+
+            // Calculate position relative to canvas, accounting for zoom/pan
+            const rect = container.getBoundingClientRect();
+            const x = (e.clientX - rect.left - editor.precanvas.style.transform
+                ? parseTransform(editor.precanvas).x : 0);
+            const y = (e.clientY - rect.top - editor.precanvas.style.transform
+                ? parseTransform(editor.precanvas).y : 0);
+
+            // Correct position using Drawflow's zoom/pan
+            const zoomLevel = editor.zoom || 1;
+            const canvasTranslate = getCanvasTranslate();
+            const posX = (e.clientX - rect.left - canvasTranslate.x) / zoomLevel;
+            const posY = (e.clientY - rect.top - canvasTranslate.y) / zoomLevel;
+
+            // Create node
+            const html = FlowNodes.generateNodeHTML(nodeType);
+            const config = FlowNodes.getDefaultConfig(nodeType);
+
+            const nodeId = editor.addNode(
+                nodeType,              // name
+                nodeDef.inputs,        // inputs
+                nodeDef.outputs,       // outputs
+                posX,                  // x
+                posY,                  // y
+                nodeType,              // class
+                { node_type: nodeType, config: config },  // data
+                html                   // html
+            );
+
+            // Hide canvas hint
+            const hint = document.getElementById('canvas-hint');
+            if (hint) hint.style.display = 'none';
+        });
+
+        function getCanvasTranslate() {
+            const precanvas = editor.precanvas;
+            if (!precanvas) return { x: 0, y: 0 };
+            const transform = precanvas.style.transform;
+            if (!transform) return { x: 0, y: 0 };
+            const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+            if (match) {
+                return {
+                    x: parseFloat(match[1]) || 0,
+                    y: parseFloat(match[2]) || 0
+                };
+            }
+            return { x: 0, y: 0 };
+        }
+
+        function parseTransform(el) {
+            const t = el.style.transform;
+            const m = t ? t.match(/translate\(([^,]+),\s*([^)]+)\)/) : null;
+            return m ? { x: parseFloat(m[1]) || 0, y: parseFloat(m[2]) || 0 } : { x: 0, y: 0 };
+        }
+
+        // ============================================================
+        // Node Selection → Property Panel
+        // ============================================================
+        editor.on('nodeSelected', function(nodeId) {
+            FlowProperties.showProperties(nodeId);
+        });
+
+        editor.on('nodeUnselected', function() {
+            // Small delay to allow re-selection
+            setTimeout(() => {
+                if (!editor.node_selected) {
+                    FlowProperties.clearProperties();
+                }
+            }, 100);
+        });
+
+        editor.on('clickEnd', function(e) {
+            // If click was on canvas background, deselect
+            if (e && e.target && e.target.id === 'drawflow') {
+                FlowProperties.clearProperties();
+            }
+        });
+
+        // ============================================================
+        // Hide hint when nodes are added
+        // ============================================================
+        editor.on('nodeCreated', function() {
+            const hint = document.getElementById('canvas-hint');
+            if (hint) hint.style.display = 'none';
+        });
+
+        // Show hint when all nodes removed
+        editor.on('nodeRemoved', function() {
+            const moduleData = editor.export().drawflow.Home.data;
+            if (Object.keys(moduleData).length === 0) {
+                const hint = document.getElementById('canvas-hint');
+                if (hint) hint.style.display = '';
+            }
+        });
+
+        // ============================================================
+        // Initialise modules
+        // ============================================================
+        FlowProperties.init(editor);
+        FlowManager.init(editor);
+        FlowList.init(document.getElementById('flow-list-panel'));
+
+        // ============================================================
+        // Keyboard shortcuts
+        // ============================================================
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+S / Cmd+S → Save
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                FlowManager.saveFlow();
+            }
+            // Delete key → delete selected node
+            if (e.key === 'Delete' && editor.node_selected && 
+                !e.target.matches('input, textarea, select')) {
+                editor.removeNodeId(editor.node_selected.id);
+                FlowProperties.clearProperties();
+            }
+        });
+
+        // ============================================================
+        // View switching: editor ↔ flow list
+        // ============================================================
+        window.showFlowList = function() {
+            document.getElementById('editor-view').style.display = 'none';
+            document.getElementById('flow-list-view').classList.add('active');
+            FlowList.refresh();
+        };
+
+        window.showEditor = function() {
+            document.getElementById('flow-list-view').classList.remove('active');
+            document.getElementById('editor-view').style.display = '';
+        };
+
+        console.log('[FlowEditor] Initialised');
+    })();
+    </script>
+</body>
+</html>

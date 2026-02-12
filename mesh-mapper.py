@@ -14062,6 +14062,16 @@ def api_alert_engine_reload():
         return jsonify({"error": str(e)}), 500
 
 
+# ----------------------
+# Flow Editor Route (Phase 2)
+# ----------------------
+@app.route('/flow-editor')
+@app.route('/flow-editor/<flow_id>')
+def flow_editor(flow_id=None):
+    """Serve the visual flow editor for alert flows."""
+    return send_from_directory(app.static_folder, 'flow-editor.html')
+
+
 @app.route('/api/lightning_detection', methods=['GET'])
 def get_lightning_detection():
     """Get current lightning detection enabled state"""
