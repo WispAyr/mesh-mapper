@@ -26,8 +26,8 @@ window.AircraftPanel = (function() {
 
         // Sort by altitude descending, show top 50
         keys.sort(function(a, b) {
-            var altA = data[a].alt_baro || data[a].altitude || 0;
-            var altB = data[b].alt_baro || data[b].altitude || 0;
+            var altA = data[a].altitude_baro || data[a].altitude_ft || data[a].alt_baro || data[a].altitude || 0;
+            var altB = data[b].altitude_baro || data[b].altitude_ft || data[b].alt_baro || data[b].altitude || 0;
             return altB - altA;
         });
 
@@ -35,7 +35,7 @@ window.AircraftPanel = (function() {
         keys.slice(0, 50).forEach(function(key) {
             var ac = data[key];
             var callsign = (ac.flight || ac.callsign || '').trim();
-            var alt = ac.alt_baro || ac.alt_geom || ac.altitude || 0;
+            var alt = ac.altitude_baro || ac.altitude_ft || ac.alt_baro || ac.alt_geom || ac.altitude || 0;
             var lat = ac.lat || ac.latitude;
             var lng = ac.lon || ac.lng || ac.longitude;
 

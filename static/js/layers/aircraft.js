@@ -174,9 +174,9 @@ window.AircraftLayer = (function() {
                     callsign: (ac.flight || ac.callsign || '').trim(),
                     registration: ac.r || ac.registration || '',
                     type: ac.t || ac.type || '',
-                    altitude: ac.alt_baro || ac.alt_geom || ac.altitude || 0,
-                    speed: ac.gs || ac.speed || 0,
-                    track: ac.track || ac.heading || 0,
+                    altitude: ac.altitude_baro || ac.altitude_ft || ac.alt_baro || ac.alt_geom || ac.altitude || (ac.raw_data && (ac.raw_data.alt_baro || ac.raw_data.alt_geom)) || 0,
+                    speed: ac.gs || ac.ground_speed || ac.speed || (ac.raw_data && ac.raw_data.gs) || 0,
+                    track: ac.track || ac.heading || (ac.raw_data && ac.raw_data.track) || 0,
                     squawk: ac.squawk || '',
                     category: ac.category || '',
                     vert_rate: ac.baro_rate || ac.vert_rate || 0
@@ -224,8 +224,10 @@ window.AircraftLayer = (function() {
     }
 
     function formatAlt(alt) {
-        if (!alt || alt === 'ground') return 'GND';
-        return Number(alt).toLocaleString() + ' ft';
+        if (alt === null || alt === undefined || alt === '' || alt === 'ground') return 'GND';
+        var n = Number(alt);
+        if (isNaN(n) || n === 0) return 'GND';
+        return n.toLocaleString() + ' ft';
     }
 
     function setVisible(vis) {
